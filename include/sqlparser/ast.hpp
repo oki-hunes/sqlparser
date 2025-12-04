@@ -16,7 +16,9 @@ namespace sqlparser::ast {
         CONCAT,                 // 文字列連結: ||
         LIKE,                   // パターンマッチ: LIKE
         NOT,                    // 単項: NOT, !
-        IS_NULL, IS_NOT_NULL    // NULL判定: IS NULL, IS NOT NULL
+        IS_NULL, IS_NOT_NULL,   // NULL判定: IS NULL, IS NOT NULL
+        BIT_AND, BIT_OR, BIT_XOR, BIT_NOT, // ビット演算: &, |, ^, ~
+        BIT_LSHIFT, BIT_RSHIFT  // ビットシフト: <<, >>
     };
 
     // ソート順

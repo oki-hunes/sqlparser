@@ -28,6 +28,7 @@ namespace sqlparser {
             switch (op.op) {
                 case ast::OpType::NOT: os << L"NOT "; break;
                 case ast::OpType::SUB: os << L"-"; break;
+                case ast::OpType::BIT_NOT: os << L"~"; break;
                 case ast::OpType::IS_NULL: 
                     boost::apply_visitor(*this, op.expr);
                     os << L" IS NULL";
@@ -66,6 +67,11 @@ namespace sqlparser {
                 case ast::OpType::MOD: os << L" % "; break;
                 case ast::OpType::CONCAT: os << L" || "; break;
                 case ast::OpType::LIKE: os << L" LIKE "; break;
+                case ast::OpType::BIT_AND: os << L" & "; break;
+                case ast::OpType::BIT_OR: os << L" | "; break;
+                case ast::OpType::BIT_XOR: os << L" ^ "; break;
+                case ast::OpType::BIT_LSHIFT: os << L" << "; break;
+                case ast::OpType::BIT_RSHIFT: os << L" >> "; break;
             }
 
             boost::apply_visitor(*this, op.right);

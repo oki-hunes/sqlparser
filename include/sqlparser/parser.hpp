@@ -110,12 +110,25 @@ namespace sqlparser::parser {
         }
     } const multiplicative_op;
 
+    struct bitwise_op_table : wide_symbols<ast::OpType> {
+        bitwise_op_table() {
+            add
+                (L"&", ast::OpType::BIT_AND)
+                (L"|", ast::OpType::BIT_OR)
+                (L"^", ast::OpType::BIT_XOR)
+                (L"<<", ast::OpType::BIT_LSHIFT)
+                (L">>", ast::OpType::BIT_RSHIFT)
+            ;
+        }
+    } const bitwise_op;
+
     struct unary_op_table : wide_symbols<ast::OpType> {
         unary_op_table() {
             add
                 (L"!", ast::OpType::NOT)
                 (L"NOT", ast::OpType::NOT)
                 (L"-", ast::OpType::SUB) // Unary Minus
+                (L"~", ast::OpType::BIT_NOT) // Bitwise NOT
             ;
         }
     } const unary_op;
@@ -125,6 +138,7 @@ namespace sqlparser::parser {
     x3::rule<class term_class, ast::Expression>       const term       = "term";
     x3::rule<class factor_class, ast::Expression>     const factor     = "factor";
     x3::rule<class null_predicate_class, ast::Expression> const null_predicate = "null_predicate";
+    x3::rule<class bitwise_class, ast::Expression>    const bitwise    = "bitwise";
     x3::rule<class sum_class, ast::Expression>        const sum        = "sum";
     x3::rule<class product_class, ast::Expression>    const product    = "product";
     x3::rule<class unary_class, ast::Expression>      const unary      = "unary";
@@ -291,7 +305,7 @@ namespace sqlparser::parser {
     auto const suffix_op_def = is_null_op | between_op | in_op;
 
     auto const null_predicate_def = 
-        (sum >> *suffix_op) [make_suffix_op];
+        (bitwise >> *suffix_op) [make_suffix_op];
 
     BOOST_SPIRIT_DEFINE(is_null_op, between_op, in_op, suffix_op);
 
@@ -325,6 +339,9 @@ namespace sqlparser::parser {
 
     auto const sum_def = 
         (product >> *(additive_op >> product)) [make_binary_op];
+
+    auto const bitwise_def = 
+        (sum >> *(bitwise_op >> sum)) [make_binary_op];
 
     // factor: 比較演算 (null_predicate op null_predicate)
     // 属性: tuple<Expression, vector<tuple<OpType, Expression>>>
@@ -381,7 +398,7 @@ namespace sqlparser::parser {
     auto const expression_def = 
         (term >> *(x3::no_case[x3::lit(L"OR")] >> term)) [make_or_op];
 
-    BOOST_SPIRIT_DEFINE(expression, term, factor, null_predicate, sum, product, unary, primary);
+    BOOST_SPIRIT_DEFINE(expression, term, factor, null_predicate, bitwise, sum, product, unary, primary);
 
     // --- ResultColumn (expression の後に定義) ---
     x3::rule<class result_column_class, ast::ResultColumn> const result_column = "result_column";
