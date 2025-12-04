@@ -14,7 +14,8 @@ namespace sqlparser::ast {
         AND, OR,                // 論理: AND, OR
         ADD, SUB, MUL, DIV, MOD, // 算術: +, -, *, /, %
         LIKE,                   // パターンマッチ: LIKE
-        NOT                     // 単項: NOT, !
+        NOT,                    // 単項: NOT, !
+        IS_NULL, IS_NOT_NULL    // NULL判定: IS NULL, IS NOT NULL
     };
 
     // ソート順
@@ -29,9 +30,11 @@ namespace sqlparser::ast {
     struct FunctionCall;
     struct Case;
     struct StringLiteral;
+    struct IntLiteral;
+    struct Between; // Added
 
     // 式を表すバリアント
-    // int: 数値
+    // IntLiteral: 数値
     // String: 識別子 (カラム名)
     // StringLiteral: 文字列リテラル
     // BinaryOp: 二項演算 (再帰的)
@@ -39,16 +42,24 @@ namespace sqlparser::ast {
     // Cast: 型変換
     // FunctionCall: 関数呼び出し
     // Case: CASE式
+    // Between: BETWEEN式
     using Expression = boost::variant<
-        int,
+        IntLiteral,
         String, 
         boost::recursive_wrapper<StringLiteral>,
         boost::recursive_wrapper<BinaryOp>,
         boost::recursive_wrapper<UnaryOp>,
         boost::recursive_wrapper<Cast>,
         boost::recursive_wrapper<FunctionCall>,
-        boost::recursive_wrapper<Case>
+        boost::recursive_wrapper<Case>,
+        boost::recursive_wrapper<Between> // Added
     >;
+
+    // 数値リテラル構造体
+    struct IntLiteral {
+        int value;
+        IntLiteral(int v = 0) : value(v) {}
+    };
 
     // 文字列リテラル構造体
     struct StringLiteral {
@@ -91,6 +102,14 @@ namespace sqlparser::ast {
         boost::optional<Expression> arg;
         std::vector<WhenClause> when_clauses;
         boost::optional<Expression> else_result;
+    };
+
+    // BETWEEN式構造体
+    struct Between {
+        Expression expr;
+        Expression lower;
+        Expression upper;
+        bool not_between; // true if NOT BETWEEN
     };
 
     // 選択リストの要素 (式 + オプションのエイリアス)
@@ -157,6 +176,7 @@ BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Cast, expr, type_name)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::FunctionCall, name, args)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WhenClause, when, then)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Case, arg, when_clauses, else_result)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Between, expr, lower, upper, not_between)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::ResultColumn, expr, alias)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::OrderByElement, column, direction)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Join, type, table, on)

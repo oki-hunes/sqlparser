@@ -14,8 +14,8 @@
 namespace x3 = boost::spirit::x3;
 
 int main() {
-    // テスト用のSQL (CASE式、算術演算、LIKEを含む)
-    std::wstring sql = L"SELECT name, age + 1 AS next_age, CASE WHEN age < 20 THEN 0 ELSE 1 END AS is_adult FROM users WHERE name LIKE 'A%' AND (age * 2) > 30 AND NOT (age = 100) AND ! (age = 0)";
+    // テスト用のSQL (CASE式、算術演算、LIKE、IS NULL、BETWEENを含む)
+    std::wstring sql = L"SELECT name, age + 1 AS next_age, CASE WHEN age < 20 THEN 0 ELSE 1 END AS is_adult FROM users WHERE name LIKE 'A%' AND (age * 2) > 30 AND NOT (age = 100) AND ! (age = 0) AND name IS NOT NULL AND age BETWEEN 20 AND 50";
     
     std::wcout << L"Testing SQL: " << sql << std::endl;
 
@@ -79,7 +79,7 @@ int main() {
             // ASTを変更する
             // カラムを追加: 1 AS one
             sqlparser::ast::ResultColumn new_col;
-            new_col.expr = 1;
+            new_col.expr = sqlparser::ast::IntLiteral{1};
             new_col.alias = L"one";
             ast.columns.push_back(new_col);
 

@@ -6,6 +6,7 @@
 #include <boost/fusion/adapted/std_tuple.hpp> // std::tuple を Fusion sequence として扱うために必要
 #include <sqlparser/ast.hpp>
 #include <sqlparser/config.hpp>
+#include <boost/fusion/include/adapt_struct.hpp> // Added for BOOST_FUSION_ADAPT_STRUCT
 
 namespace sqlparser::parser {
     namespace x3 = boost::spirit::x3;
@@ -58,10 +59,14 @@ namespace sqlparser::parser {
 
     // 識別子: 英数字とアンダースコア、ドット (テーブル修飾用)
     x3::rule<class identifier_class, std::wstring> const identifier = "identifier";
-    auto const identifier_def = x3::lexeme[ 
+    auto const identifier_def = x3::raw[x3::lexeme[ 
         !(x3::no_case[keywords] >> !(alnum | char_(L'_') | char_(L'.')))
         >> +(alnum | char_(L'_') | char_(L'.')) 
-    ];
+    ]] [ ([](auto& ctx){ 
+        auto& range = x3::_attr(ctx);
+        std::wstring str(range.begin(), range.end());
+        x3::_val(ctx) = str;
+    }) ];
     BOOST_SPIRIT_DEFINE(identifier);
 
     // 前方宣言
@@ -118,6 +123,7 @@ namespace sqlparser::parser {
     x3::rule<class expression_class, ast::Expression> const expression = "expression";
     x3::rule<class term_class, ast::Expression>       const term       = "term";
     x3::rule<class factor_class, ast::Expression>     const factor     = "factor";
+    x3::rule<class null_predicate_class, ast::Expression> const null_predicate = "null_predicate";
     x3::rule<class sum_class, ast::Expression>        const sum        = "sum";
     x3::rule<class product_class, ast::Expression>    const product    = "product";
     x3::rule<class unary_class, ast::Expression>      const unary      = "unary";
@@ -169,20 +175,28 @@ namespace sqlparser::parser {
     auto const string_literal_def = x3::lexeme[L"'" >> *(x3::standard_wide::char_ - L"'") >> L"'"];
     BOOST_SPIRIT_DEFINE(string_literal);
 
+    // 数値リテラル
+    x3::rule<class int_literal_class, ast::IntLiteral> const int_literal = "int_literal";
+    auto const int_literal_def = x3::int_ [ ([](auto& ctx){ 
+        x3::_val(ctx) = ast::IntLiteral(x3::_attr(ctx)); 
+    }) ];
+    BOOST_SPIRIT_DEFINE(int_literal);
+
     // primary: 数値 | CAST式 | 関数呼び出し | 識別子 | * | (式)
     // 注意: function_call は identifier で始まるため、identifier より先に記述する必要がある
     // "*" を追加して SELECT * に対応
     auto const primary_def = 
-        x3::int_ 
-        | cast_expr
-        | function_call
-        | case_expr
-        | identifier 
-        | string_literal
-        | x3::string(L"*")
-        | (L'(' >> expression >> L')');
+        int_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | cast_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | function_call [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | case_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | identifier [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | string_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | (x3::lit(L"*") >> x3::attr(std::wstring(L"*"))) [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | (L'(' >> expression >> L')') [ ([](auto& ctx){ x3::_val(ctx) = x3::_attr(ctx); }) ]
+        ;
 
-    // unary: 単項演算子
+    // unary: 単項演算子 (前置)
     auto make_unary_op = [](auto& ctx) {
         using boost::fusion::at_c;
         auto& attr = x3::_attr(ctx); // tuple<OpType, Expression>
@@ -196,7 +210,72 @@ namespace sqlparser::parser {
 
     auto const unary_def = 
         (unary_op >> unary) [make_unary_op]
-        | primary;
+        | primary [ ([](auto& ctx){ x3::_val(ctx) = x3::_attr(ctx); }) ];
+
+    // null_predicate: IS NULL / IS NOT NULL / BETWEEN (後置)
+    // sum の後に適用される
+
+    // Between の引数構造体
+    struct BetweenArgs {
+        bool not_between;
+        ast::Expression lower;
+        ast::Expression upper;
+    };
+
+    // SuffixOp: IS NULL (OpType) または BETWEEN (BetweenArgs)
+    using SuffixOp = boost::variant<ast::OpType, BetweenArgs>;
+
+    auto make_suffix_op = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx); // tuple<Expression, vector<SuffixOp>>
+        
+        auto& first = at_c<0>(attr);
+        auto& rest = at_c<1>(attr);
+
+        if (rest.empty()) {
+            x3::_val(ctx) = first;
+        } else {
+            ast::Expression current = first;
+            for (auto& op_variant : rest) {
+                if (auto* op_type = boost::get<ast::OpType>(&op_variant)) {
+                    // IS NULL / IS NOT NULL
+                    ast::UnaryOp op_node;
+                    op_node.op = *op_type;
+                    op_node.expr = current;
+                    current = op_node;
+                } else if (auto* between_args = boost::get<BetweenArgs>(&op_variant)) {
+                    // BETWEEN
+                    ast::Between between_node;
+                    between_node.expr = current;
+                    between_node.lower = between_args->lower;
+                    between_node.upper = between_args->upper;
+                    between_node.not_between = between_args->not_between;
+                    current = between_node;
+                }
+            }
+            x3::_val(ctx) = current;
+        }
+    };
+
+    x3::rule<class is_null_op_class, ast::OpType> const is_null_op = "is_null_op";
+    auto const is_null_op_def = 
+        (x3::no_case[x3::lit(L"IS") >> x3::lit(L"NOT") >> x3::lit(L"NULL")] >> x3::attr(ast::OpType::IS_NOT_NULL))
+        | (x3::no_case[x3::lit(L"IS") >> x3::lit(L"NULL")] >> x3::attr(ast::OpType::IS_NULL));
+
+    x3::rule<class between_op_class, BetweenArgs> const between_op = "between_op";
+    auto const between_op_def = 
+        (x3::no_case[x3::lit(L"NOT") >> x3::lit(L"BETWEEN")] >> x3::attr(true) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum)
+        | (x3::no_case[x3::lit(L"BETWEEN")] >> x3::attr(false) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum);
+
+    x3::rule<class suffix_op_class, SuffixOp> const suffix_op = "suffix_op";
+    auto const suffix_op_def = is_null_op | between_op;
+
+    auto const null_predicate_def = 
+        (sum >> *suffix_op) [make_suffix_op];
+
+    BOOST_SPIRIT_DEFINE(is_null_op, between_op, suffix_op);
+
+    // BOOST_SPIRIT_DEFINE(null_predicate); // Moved to the main BOOST_SPIRIT_DEFINE
 
     // ヘルパー: BinaryOp を構築するアクション
     auto make_binary_op = [](auto& ctx) {
@@ -227,10 +306,10 @@ namespace sqlparser::parser {
     auto const sum_def = 
         (product >> *(additive_op >> product)) [make_binary_op];
 
-    // factor: 比較演算 (sum op sum)
+    // factor: 比較演算 (null_predicate op null_predicate)
     // 属性: tuple<Expression, vector<tuple<OpType, Expression>>>
     auto const factor_def = 
-        (sum >> *(op_symbol >> sum)) [make_binary_op];
+        (null_predicate >> *(op_symbol >> null_predicate)) [make_binary_op];
 
     // term: AND 演算
     auto make_and_op = [](auto& ctx) {
@@ -282,7 +361,7 @@ namespace sqlparser::parser {
     auto const expression_def = 
         (term >> *(x3::no_case[x3::lit(L"OR")] >> term)) [make_or_op];
 
-    BOOST_SPIRIT_DEFINE(expression, term, factor, sum, product, unary, primary);
+    BOOST_SPIRIT_DEFINE(expression, term, factor, null_predicate, sum, product, unary, primary);
 
     // --- ResultColumn (expression の後に定義) ---
     x3::rule<class result_column_class, ast::ResultColumn> const result_column = "result_column";
@@ -679,3 +758,13 @@ namespace sqlparser::parser {
     // 古い grammar は削除または非推奨
     // auto const grammar = select_stmt; 
 }
+
+// Forward declaration of BetweenArgs for Fusion adaptation
+namespace sqlparser::parser {
+    struct BetweenArgs;
+}
+
+BOOST_FUSION_ADAPT_STRUCT(
+    sqlparser::parser::BetweenArgs,
+    not_between, lower, upper
+)

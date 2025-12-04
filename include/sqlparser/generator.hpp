@@ -10,8 +10,9 @@ namespace sqlparser {
         std::wostream& os;
         ExpressionPrinter(std::wostream& os) : os(os) {}
 
-        void operator()(int i) const {
-            os << i;
+        void operator()(const ast::IntLiteral& i) const {
+            // os << i.value;
+            os << i.value; // Reverted debug print idea to keep output clean, but I know it is IntLiteral
         }
 
         void operator()(const String& s) const {
@@ -27,6 +28,16 @@ namespace sqlparser {
             switch (op.op) {
                 case ast::OpType::NOT: os << L"NOT "; break;
                 case ast::OpType::SUB: os << L"-"; break;
+                case ast::OpType::IS_NULL: 
+                    boost::apply_visitor(*this, op.expr);
+                    os << L" IS NULL";
+                    os << L")";
+                    return;
+                case ast::OpType::IS_NOT_NULL:
+                    boost::apply_visitor(*this, op.expr);
+                    os << L" IS NOT NULL";
+                    os << L")";
+                    return;
                 default: break;
             }
             boost::apply_visitor(*this, op.expr);
@@ -94,6 +105,20 @@ namespace sqlparser {
                 boost::apply_visitor(*this, *c.else_result);
             }
             os << L" END";
+        }
+
+        void operator()(const ast::Between& b) const {
+            os << L"(";
+            boost::apply_visitor(*this, b.expr);
+            if (b.not_between) {
+                os << L" NOT BETWEEN ";
+            } else {
+                os << L" BETWEEN ";
+            }
+            boost::apply_visitor(*this, b.lower);
+            os << L" AND ";
+            boost::apply_visitor(*this, b.upper);
+            os << L")";
         }
     };
 
