@@ -9,3 +9,6 @@ target_link_libraries(union_query PRIVATE sqlparser)
 
 add_executable(union_manipulation union_manipulation.cpp)
 target_link_libraries(union_manipulation PRIVATE sqlparser)
+
+add_executable(check_union check_union.cpp)
+target_link_libraries(check_union PRIVATE sqlparser)
