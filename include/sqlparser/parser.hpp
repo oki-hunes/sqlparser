@@ -90,6 +90,7 @@ namespace sqlparser::parser {
         }
     } const op_symbol;
 
+    // struct additive_op_table
     struct additive_op_table : wide_symbols<ast::OpType> {
         additive_op_table() {
             add
@@ -98,8 +99,13 @@ namespace sqlparser::parser {
                 (L"-", ast::OpType::SUB)
             ;
         }
-    } const additive_op;
+    } const additive_op_symbol;
 
+    x3::rule<class additive_op_class, ast::OpType> const additive_op = "additive_op";
+    auto const additive_op_def = additive_op_symbol;
+    BOOST_SPIRIT_DEFINE(additive_op);
+
+    // struct multiplicative_op_table
     struct multiplicative_op_table : wide_symbols<ast::OpType> {
         multiplicative_op_table() {
             add
@@ -108,30 +114,44 @@ namespace sqlparser::parser {
                 (L"%", ast::OpType::MOD)
             ;
         }
-    } const multiplicative_op;
+    } const multiplicative_op_symbol;
 
+    x3::rule<class multiplicative_op_class, ast::OpType> const multiplicative_op = "multiplicative_op";
+    auto const multiplicative_op_def = multiplicative_op_symbol;
+    BOOST_SPIRIT_DEFINE(multiplicative_op);
+
+    // struct bitwise_op_table
     struct bitwise_op_table : wide_symbols<ast::OpType> {
         bitwise_op_table() {
             add
+                (L"<<", ast::OpType::BIT_LSHIFT)
+                (L">>", ast::OpType::BIT_RSHIFT)
                 (L"&", ast::OpType::BIT_AND)
                 (L"|", ast::OpType::BIT_OR)
                 (L"^", ast::OpType::BIT_XOR)
-                (L"<<", ast::OpType::BIT_LSHIFT)
-                (L">>", ast::OpType::BIT_RSHIFT)
             ;
         }
-    } const bitwise_op;
+    } const bitwise_op_symbol;
 
+    x3::rule<class bitwise_op_class, ast::OpType> const bitwise_op = "bitwise_op";
+    auto const bitwise_op_def = bitwise_op_symbol;
+    BOOST_SPIRIT_DEFINE(bitwise_op);
+
+    // struct unary_op_table
     struct unary_op_table : wide_symbols<ast::OpType> {
         unary_op_table() {
             add
                 (L"!", ast::OpType::NOT)
                 (L"NOT", ast::OpType::NOT)
-                (L"-", ast::OpType::SUB) // Unary Minus
-                (L"~", ast::OpType::BIT_NOT) // Bitwise NOT
+                (L"-", ast::OpType::SUB)
+                (L"~", ast::OpType::BIT_NOT)
             ;
         }
-    } const unary_op;
+    } const unary_op_symbol;
+
+    x3::rule<class unary_op_class, ast::OpType> const unary_op = "unary_op";
+    auto const unary_op_def = x3::no_case[unary_op_symbol];
+    BOOST_SPIRIT_DEFINE(unary_op);
 
     // 式の再帰定義のためのルール宣言
     x3::rule<class expression_class, ast::Expression> const expression = "expression";
@@ -292,8 +312,8 @@ namespace sqlparser::parser {
 
     x3::rule<class between_op_class, BetweenArgs> const between_op = "between_op";
     auto const between_op_def = 
-        (x3::no_case[x3::lit(L"NOT") >> x3::lit(L"BETWEEN")] >> x3::attr(true) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum)
-        | (x3::no_case[x3::lit(L"BETWEEN")] >> x3::attr(false) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum);
+        (x3::no_case[x3::lit(L"NOT") >> x3::lit(L"BETWEEN")] >> x3::attr(true) >> bitwise >> x3::no_case[x3::lit(L"AND")] >> bitwise)
+        | (x3::no_case[x3::lit(L"BETWEEN")] >> x3::attr(false) >> bitwise >> x3::no_case[x3::lit(L"AND")] >> bitwise);
 
     x3::rule<class in_op_class, InArgs> const in_op = "in_op";
     auto const in_op_def = 
@@ -737,14 +757,15 @@ namespace sqlparser::parser {
         if (select_pos != 0) return false;
 
         size_t from_pos = find_keyword(sql, L" FROM ", select_pos);
-        if (from_pos == std::wstring::npos) return false;
+        // if (from_pos == std::wstring::npos) return false; // Allow missing FROM
 
-        size_t where_pos = find_keyword(sql, L" WHERE ", from_pos);
-        size_t group_by_pos = find_keyword(sql, L" GROUP BY ", from_pos);
-        size_t having_pos = find_keyword(sql, L" HAVING ", from_pos);
-        size_t order_by_pos = find_keyword(sql, L" ORDER BY ", from_pos);
-        size_t limit_pos = find_keyword(sql, L" LIMIT ", from_pos);
-        size_t offset_pos = find_keyword(sql, L" OFFSET ", from_pos);
+        size_t search_start_pos = (from_pos != std::wstring::npos) ? from_pos : select_pos;
+        size_t where_pos = find_keyword(sql, L" WHERE ", search_start_pos);
+        size_t group_by_pos = find_keyword(sql, L" GROUP BY ", search_start_pos);
+        size_t having_pos = find_keyword(sql, L" HAVING ", search_start_pos);
+        size_t order_by_pos = find_keyword(sql, L" ORDER BY ", search_start_pos);
+        size_t limit_pos = find_keyword(sql, L" LIMIT ", search_start_pos);
+        size_t offset_pos = find_keyword(sql, L" OFFSET ", search_start_pos);
 
         // 各セクションの終了位置を計算するヘルパー
         auto get_end_pos = [&](size_t start, std::initializer_list<size_t> candidates) {
@@ -757,8 +778,8 @@ namespace sqlparser::parser {
             return end;
         };
 
-        size_t columns_end = from_pos;
-        size_t table_end = get_end_pos(from_pos, {where_pos, group_by_pos, having_pos, order_by_pos, limit_pos, offset_pos});
+        size_t columns_end = (from_pos != std::wstring::npos) ? from_pos : get_end_pos(select_pos, {where_pos, group_by_pos, having_pos, order_by_pos, limit_pos, offset_pos});
+        size_t table_end = (from_pos != std::wstring::npos) ? get_end_pos(from_pos, {where_pos, group_by_pos, having_pos, order_by_pos, limit_pos, offset_pos}) : 0;
         size_t where_end = (where_pos != std::wstring::npos) ? get_end_pos(where_pos, {group_by_pos, having_pos, order_by_pos, limit_pos, offset_pos}) : 0;
         size_t group_by_end = (group_by_pos != std::wstring::npos) ? get_end_pos(group_by_pos, {having_pos, order_by_pos, limit_pos, offset_pos}) : 0;
         size_t having_end = (having_pos != std::wstring::npos) ? get_end_pos(having_pos, {order_by_pos, limit_pos, offset_pos}) : 0;
@@ -800,101 +821,103 @@ namespace sqlparser::parser {
         ast.columns = std::get<1>(header_attr);
 
         // Table & Joins
-        // " FROM " の長さは 6
-        std::wstring from_section = sql.substr(from_pos + 6, table_end - (from_pos + 6));
-        
-        // JOIN を探す
-        // 簡易的に "JOIN" を探して、その前の単語を確認する
-        size_t current_pos = 0;
-        
-        // 最初のテーブルを探す (最初の JOIN まで、または最後まで)
-        size_t first_join_pos = std::wstring::npos;
-        ast::JoinType first_join_type = ast::JoinType::INNER; // ダミー
-        size_t join_keyword_len = 0;
-
-        // JOIN キーワードのリスト
-        struct JoinKw { std::wstring kw; ast::JoinType type; };
-        std::vector<JoinKw> join_kws = {
-            {L" LEFT JOIN ", ast::JoinType::LEFT},
-            {L" RIGHT JOIN ", ast::JoinType::RIGHT},
-            {L" FULL JOIN ", ast::JoinType::FULL},
-            {L" INNER JOIN ", ast::JoinType::INNER},
-            {L" JOIN ", ast::JoinType::INNER}
-        };
-
-        // 最も手前にある JOIN を探す
-        for (const auto& jk : join_kws) {
-            size_t p = find_keyword(from_section, jk.kw, 0);
-            if (p != std::wstring::npos) {
-                if (first_join_pos == std::wstring::npos || p < first_join_pos) {
-                    first_join_pos = p;
-                    first_join_type = jk.type;
-                    join_keyword_len = jk.kw.length();
-                }
-            }
-        }
-
-        std::wstring primary_table_str;
-        if (first_join_pos == std::wstring::npos) {
-            primary_table_str = from_section;
-        } else {
-            primary_table_str = from_section.substr(0, first_join_pos);
-        }
-
-        if (!parse_table_reference_impl(primary_table_str, ast.table)) return false;
-
-        // JOIN があればループ処理
-        current_pos = first_join_pos;
-        while (current_pos != std::wstring::npos) {
-            // current_pos は JOIN キーワードの開始位置
-            // join_keyword_len は見つかったキーワードの長さ
-            // first_join_type はそのタイプ
-
-            // 次のパートへ進む
-            size_t after_join = current_pos + join_keyword_len;
+        if (from_pos != std::wstring::npos) {
+            // " FROM " の長さは 6
+            std::wstring from_section = sql.substr(from_pos + 6, table_end - (from_pos + 6));
             
-            // ON を探す
-            size_t on_pos = find_keyword(from_section, L" ON ", after_join);
-            if (on_pos == std::wstring::npos) return false; // ON がない
+            // JOIN を探す
+            // 簡易的に "JOIN" を探して、その前の単語を確認する
+            size_t current_pos = 0;
+            
+            // 最初のテーブルを探す (最初の JOIN まで、または最後まで)
+            size_t first_join_pos = std::wstring::npos;
+            ast::JoinType first_join_type = ast::JoinType::INNER; // ダミー
+            size_t join_keyword_len = 0;
 
-            // テーブル部分
-            std::wstring joined_table_str = from_section.substr(after_join, on_pos - after_join);
-            ast::Join join_node;
-            join_node.type = first_join_type;
-            if (!parse_table_reference_impl(joined_table_str, join_node.table)) return false;
+            // JOIN キーワードのリスト
+            struct JoinKw { std::wstring kw; ast::JoinType type; };
+            std::vector<JoinKw> join_kws = {
+                {L" LEFT JOIN ", ast::JoinType::LEFT},
+                {L" RIGHT JOIN ", ast::JoinType::RIGHT},
+                {L" FULL JOIN ", ast::JoinType::FULL},
+                {L" INNER JOIN ", ast::JoinType::INNER},
+                {L" JOIN ", ast::JoinType::INNER}
+            };
 
-            // 次の JOIN を探す
-            size_t next_join_pos = std::wstring::npos;
-            ast::JoinType next_join_type = ast::JoinType::INNER;
-            size_t next_join_len = 0;
-
+            // 最も手前にある JOIN を探す
             for (const auto& jk : join_kws) {
-                size_t p = find_keyword(from_section, jk.kw, on_pos + 4); // " ON " の後から
+                size_t p = find_keyword(from_section, jk.kw, 0);
                 if (p != std::wstring::npos) {
-                    if (next_join_pos == std::wstring::npos || p < next_join_pos) {
-                        next_join_pos = p;
-                        next_join_type = jk.type;
-                        next_join_len = jk.kw.length();
+                    if (first_join_pos == std::wstring::npos || p < first_join_pos) {
+                        first_join_pos = p;
+                        first_join_type = jk.type;
+                        join_keyword_len = jk.kw.length();
                     }
                 }
             }
 
-            // 条件部分
-            size_t condition_start = on_pos + 4; // " ON " len
-            size_t condition_end = (next_join_pos == std::wstring::npos) ? from_section.length() : next_join_pos;
-            std::wstring condition_str = from_section.substr(condition_start, condition_end - condition_start);
+            std::wstring primary_table_str;
+            if (first_join_pos == std::wstring::npos) {
+                primary_table_str = from_section;
+            } else {
+                primary_table_str = from_section.substr(0, first_join_pos);
+            }
 
-            // 条件パース
-            auto cond_begin = condition_str.begin();
-            auto cond_end = condition_str.end();
-            if (!x3::phrase_parse(cond_begin, cond_end, expression, x3::unicode::space, join_node.on)) return false;
+            if (!parse_table_reference_impl(primary_table_str, ast.table)) return false;
 
-            ast.joins.push_back(join_node);
+            // JOIN があればループ処理
+            current_pos = first_join_pos;
+            while (current_pos != std::wstring::npos) {
+                // current_pos は JOIN キーワードの開始位置
+                // join_keyword_len は見つかったキーワードの長さ
+                // first_join_type はそのタイプ
 
-            // ループ更新
-            current_pos = next_join_pos;
-            first_join_type = next_join_type;
-            join_keyword_len = next_join_len;
+                // 次のパートへ進む
+                size_t after_join = current_pos + join_keyword_len;
+                
+                // ON を探す
+                size_t on_pos = find_keyword(from_section, L" ON ", after_join);
+                if (on_pos == std::wstring::npos) return false; // ON がない
+
+                // テーブル部分
+                std::wstring joined_table_str = from_section.substr(after_join, on_pos - after_join);
+                ast::Join join_node;
+                join_node.type = first_join_type;
+                if (!parse_table_reference_impl(joined_table_str, join_node.table)) return false;
+
+                // 次の JOIN を探す
+                size_t next_join_pos = std::wstring::npos;
+                ast::JoinType next_join_type = ast::JoinType::INNER;
+                size_t next_join_len = 0;
+
+                for (const auto& jk : join_kws) {
+                    size_t p = find_keyword(from_section, jk.kw, on_pos + 4); // " ON " の後から
+                    if (p != std::wstring::npos) {
+                        if (next_join_pos == std::wstring::npos || p < next_join_pos) {
+                            next_join_pos = p;
+                            next_join_type = jk.type;
+                            next_join_len = jk.kw.length();
+                        }
+                    }
+                }
+
+                // 条件部分
+                size_t condition_start = on_pos + 4; // " ON " len
+                size_t condition_end = (next_join_pos == std::wstring::npos) ? from_section.length() : next_join_pos;
+                std::wstring condition_str = from_section.substr(condition_start, condition_end - condition_start);
+
+                // 条件パース
+                auto cond_begin = condition_str.begin();
+                auto cond_end = condition_str.end();
+                if (!x3::phrase_parse(cond_begin, cond_end, expression, x3::unicode::space, join_node.on)) return false;
+
+                ast.joins.push_back(join_node);
+
+                // ループ更新
+                current_pos = next_join_pos;
+                first_join_type = next_join_type;
+                join_keyword_len = next_join_len;
+            }
         }
 
         // WHERE

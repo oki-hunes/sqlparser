@@ -17,4 +17,5 @@ target_link_libraries(sqlparser INTERFACE Boost::boost)
 
 # サブディレクトリの追加
 add_subdirectory(examples)
-# add_subdirectory(tests) # テストは後ほど実装
+enable_testing()
+add_subdirectory(tests)

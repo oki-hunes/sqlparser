@@ -191,11 +191,27 @@ namespace sqlparser {
             }
         }
         
-        ss << L" FROM ";
-        TableReferencePrinter tablePrinter(ss);
-        boost::apply_visitor(tablePrinter, ast.table);
+        // テーブルが空かどうかをチェックするロジックが必要
+        // ast.table は boost::variant<Table, Subquery>
+        // Table の場合、name が空なら FROM 句を出力しない、という判断にするか、
+        // あるいは parser 側で FROM がない場合は ast.table を初期化しない（variant なので難しいが、Table の name が空文字列かどうかで判断）
+        
+        bool has_table = false;
+        struct TableChecker : boost::static_visitor<bool> {
+            bool operator()(const ast::Table& t) const { return !t.name.empty(); }
+            bool operator()(const ast::Subquery& s) const { return true; } // サブクエリがあれば FROM はあるはず
+        };
+        
+        has_table = boost::apply_visitor(TableChecker(), ast.table);
+
+        if (has_table) {
+            ss << L" FROM ";
+            TableReferencePrinter tablePrinter(ss);
+            boost::apply_visitor(tablePrinter, ast.table);
+        }
 
         // JOIN句の生成
+        TableReferencePrinter tablePrinter(ss); // JOIN句でも使うのでここで定義
         for (const auto& join : ast.joins) {
             switch (join.type) {
                 case ast::JoinType::INNER: ss << L" INNER JOIN "; break;
