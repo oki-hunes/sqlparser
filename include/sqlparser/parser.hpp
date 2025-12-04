@@ -455,6 +455,15 @@ namespace sqlparser::parser {
 
     // --- 構造解析ロジック ---
 
+    // 大文字小文字を無視して文字列比較を行うヘルパー
+    inline bool is_iequal(std::wstring const& s1, std::wstring const& s2) {
+        if (s1.size() != s2.size()) return false;
+        for (size_t i = 0; i < s1.size(); ++i) {
+            if (std::towupper(s1[i]) != std::towupper(s2[i])) return false;
+        }
+        return true;
+    }
+
     // 大文字小文字を無視してキーワードを探す (括弧を考慮)
     inline size_t find_keyword(std::wstring const& sql, std::wstring const& kw, size_t start_pos = 0) {
         size_t pos = start_pos;
@@ -567,7 +576,68 @@ namespace sqlparser::parser {
     }
 
     // SQL全体をパースする関数
+    // 再帰的に呼び出されるため、UNIONの処理もここで行う
     inline bool parse(std::wstring const& sql, ast::SelectStatement& ast) {
+        // UNION の分割
+        // 括弧内の UNION は無視する必要があるため、単純な find_keyword では不十分かもしれないが、
+        // ここではトップレベルの UNION を探す簡易的な実装とする。
+        // ただし、サブクエリ内の UNION にマッチしないように注意が必要。
+        // 括弧のネストレベルを考慮して分割する。
+
+        size_t union_pos = std::wstring::npos;
+        ast::SetOperationType union_type = ast::SetOperationType::Union;
+        size_t union_len = 0;
+
+        int paren_level = 0;
+        for (size_t i = 0; i < sql.length(); ++i) {
+            if (sql[i] == L'(') paren_level++;
+            else if (sql[i] == L')') paren_level--;
+            else if (paren_level == 0) {
+                // UNION を探す
+                // " UNION "
+                if (i + 7 <= sql.length() && is_iequal(sql.substr(i, 7), L" UNION ")) {
+                    union_pos = i;
+                    union_len = 7;
+                    union_type = ast::SetOperationType::Union;
+                    
+                    // UNION ALL チェック
+                    if (i + 11 <= sql.length() && is_iequal(sql.substr(i, 11), L" UNION ALL ")) {
+                        union_len = 11;
+                        union_type = ast::SetOperationType::UnionAll;
+                    }
+                    break; // 最初の UNION で分割
+                }
+            }
+        }
+
+        if (union_pos != std::wstring::npos) {
+            // UNION が見つかった場合
+            std::wstring left_sql = sql.substr(0, union_pos);
+            std::wstring right_sql = sql.substr(union_pos + union_len);
+
+            // 左側をパース (再帰)
+            if (!parse(left_sql, ast)) return false;
+
+            // 右側をパース (再帰)
+            ast::SelectStatement right_ast;
+            if (!parse(right_sql, right_ast)) return false;
+
+            // カラム数チェック
+            if (ast.columns.size() != right_ast.columns.size()) {
+                std::wcerr << L"Error: UNION column count mismatch. Left: " << ast.columns.size() << L", Right: " << right_ast.columns.size() << std::endl;
+                return false;
+            }
+
+            // UNION句を追加
+            ast::UnionClause union_clause;
+            union_clause.type = union_type;
+            union_clause.select = right_ast;
+            ast.unions.push_back(union_clause);
+
+            return true;
+        }
+
+        // UNION がない場合、通常の SELECT 文としてパース
         // 1. キーワードの位置を特定する
         size_t select_pos = find_keyword(sql, L"SELECT");
         if (select_pos != 0) return false;

@@ -244,6 +244,18 @@ namespace sqlparser {
             boost::apply_visitor(exprPrinter, *ast.offset);
         }
 
+        // UNION句の生成
+        for (const auto& u : ast.unions) {
+            if (u.type == ast::SetOperationType::UnionAll) {
+                ss << L" UNION ALL ";
+            } else {
+                ss << L" UNION ";
+            }
+            // 再帰呼び出し
+            // boost::recursive_wrapper は暗黙的にキャストされるか、get() でアクセス
+            ss << generate(u.select.get());
+        }
+
         return ss.str();
     }
 }

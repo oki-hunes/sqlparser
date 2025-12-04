@@ -165,6 +165,20 @@ namespace sqlparser::ast {
         DistinctRow
     };
 
+    // 集合演算の種類
+    enum class SetOperationType {
+        Union,
+        UnionAll
+    };
+
+    struct SelectStatement;
+
+    // UNION句
+    struct UnionClause {
+        SetOperationType type;
+        boost::recursive_wrapper<SelectStatement> select;
+    };
+
     // TOP句
     // SELECT文を表す構造体
     struct SelectStatement {
@@ -178,6 +192,7 @@ namespace sqlparser::ast {
         std::vector<OrderByElement> orderBy; // ORDER BY句 (空なら指定なし)
         boost::optional<Expression> limit; // LIMIT句 (省略可能)
         boost::optional<Expression> offset; // OFFSET句 (省略可能)
+        std::vector<UnionClause> unions; // UNION句のリスト
     };
 }
 
@@ -194,5 +209,6 @@ BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::In, expr, values, not_in)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::ResultColumn, expr, alias)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::OrderByElement, column, direction)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Join, type, table, on)
-BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::SelectStatement, quantifier, columns, table, joins, where, groupBy, having, orderBy, limit, offset)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::UnionClause, type, select)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::SelectStatement, quantifier, columns, table, joins, where, groupBy, having, orderBy, limit, offset, unions)
 
