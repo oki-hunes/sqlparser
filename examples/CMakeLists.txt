@@ -1,0 +1,2 @@
+add_executable(simple_select simple_select.cpp)
+target_link_libraries(simple_select PRIVATE sqlparser)
