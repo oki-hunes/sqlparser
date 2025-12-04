@@ -13,6 +13,7 @@ namespace sqlparser::ast {
         EQ, NE, GT, LT, GE, LE, // 比較: =, !=, >, <, >=, <=
         AND, OR,                // 論理: AND, OR
         ADD, SUB, MUL, DIV, MOD, // 算術: +, -, *, /, %
+        CONCAT,                 // 文字列連結: ||
         LIKE,                   // パターンマッチ: LIKE
         NOT,                    // 単項: NOT, !
         IS_NULL, IS_NOT_NULL    // NULL判定: IS NULL, IS NOT NULL

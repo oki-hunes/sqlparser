@@ -64,6 +64,7 @@ namespace sqlparser {
                 case ast::OpType::MUL: os << L" * "; break;
                 case ast::OpType::DIV: os << L" / "; break;
                 case ast::OpType::MOD: os << L" % "; break;
+                case ast::OpType::CONCAT: os << L" || "; break;
                 case ast::OpType::LIKE: os << L" LIKE "; break;
             }
 

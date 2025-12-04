@@ -93,6 +93,7 @@ namespace sqlparser::parser {
     struct additive_op_table : wide_symbols<ast::OpType> {
         additive_op_table() {
             add
+                (L"||", ast::OpType::CONCAT)
                 (L"+", ast::OpType::ADD)
                 (L"-", ast::OpType::SUB)
             ;
