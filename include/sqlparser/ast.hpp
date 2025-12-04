@@ -10,7 +10,11 @@ namespace sqlparser::ast {
     
     // 演算子の種類
     enum class OpType {
-        EQ, NE, GT, LT, GE, LE, AND, OR
+        EQ, NE, GT, LT, GE, LE, // 比較: =, !=, >, <, >=, <=
+        AND, OR,                // 論理: AND, OR
+        ADD, SUB, MUL, DIV, MOD, // 算術: +, -, *, /, %
+        LIKE,                   // パターンマッチ: LIKE
+        NOT                     // 単項: NOT, !
     };
 
     // ソート順
@@ -20,31 +24,48 @@ namespace sqlparser::ast {
 
     // 前方宣言
     struct BinaryOp;
+    struct UnaryOp;
     struct Cast;
     struct FunctionCall;
     struct Case;
+    struct StringLiteral;
 
     // 式を表すバリアント
     // int: 数値
-    // String: 識別子 (カラム名) または 文字列リテラル
+    // String: 識別子 (カラム名)
+    // StringLiteral: 文字列リテラル
     // BinaryOp: 二項演算 (再帰的)
+    // UnaryOp: 単項演算 (再帰的)
     // Cast: 型変換
     // FunctionCall: 関数呼び出し
     // Case: CASE式
     using Expression = boost::variant<
         int,
         String, 
+        boost::recursive_wrapper<StringLiteral>,
         boost::recursive_wrapper<BinaryOp>,
+        boost::recursive_wrapper<UnaryOp>,
         boost::recursive_wrapper<Cast>,
         boost::recursive_wrapper<FunctionCall>,
         boost::recursive_wrapper<Case>
     >;
+
+    // 文字列リテラル構造体
+    struct StringLiteral {
+        String value;
+    };
 
     // 二項演算構造体
     struct BinaryOp {
         OpType op;
         Expression left;
         Expression right;
+    };
+
+    // 単項演算構造体
+    struct UnaryOp {
+        OpType op;
+        Expression expr;
     };
 
     // CAST式構造体
@@ -129,7 +150,9 @@ namespace sqlparser::ast {
 }
 
 // Boost.Fusion で構造体をアダプト
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::StringLiteral, value)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::BinaryOp, op, left, right)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::UnaryOp, op, expr)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Cast, expr, type_name)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::FunctionCall, name, args)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WhenClause, when, then)

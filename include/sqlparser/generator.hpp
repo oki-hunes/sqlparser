@@ -18,6 +18,21 @@ namespace sqlparser {
             os << s;
         }
 
+        void operator()(const ast::StringLiteral& s) const {
+            os << L"'" << s.value << L"'";
+        }
+
+        void operator()(const ast::UnaryOp& op) const {
+            os << L"(";
+            switch (op.op) {
+                case ast::OpType::NOT: os << L"NOT "; break;
+                case ast::OpType::SUB: os << L"-"; break;
+                default: break;
+            }
+            boost::apply_visitor(*this, op.expr);
+            os << L")";
+        }
+
         void operator()(const ast::BinaryOp& op) const {
             // 括弧をつけるかどうかは優先順位によるが、簡易的に常につけるか、
             // ここでは単純に再帰呼び出し
@@ -33,6 +48,12 @@ namespace sqlparser {
                 case ast::OpType::LE: os << L" <= "; break;
                 case ast::OpType::AND: os << L" AND "; break;
                 case ast::OpType::OR:  os << L" OR "; break;
+                case ast::OpType::ADD: os << L" + "; break;
+                case ast::OpType::SUB: os << L" - "; break;
+                case ast::OpType::MUL: os << L" * "; break;
+                case ast::OpType::DIV: os << L" / "; break;
+                case ast::OpType::MOD: os << L" % "; break;
+                case ast::OpType::LIKE: os << L" LIKE "; break;
             }
 
             boost::apply_visitor(*this, op.right);

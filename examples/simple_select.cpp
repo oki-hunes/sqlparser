@@ -14,8 +14,8 @@
 namespace x3 = boost::spirit::x3;
 
 int main() {
-    // テスト用のSQL (CASE式を含む)
-    std::wstring sql = L"SELECT name, CASE WHEN age < 20 THEN 0 ELSE 1 END AS is_adult FROM users";
+    // テスト用のSQL (CASE式、算術演算、LIKEを含む)
+    std::wstring sql = L"SELECT name, age + 1 AS next_age, CASE WHEN age < 20 THEN 0 ELSE 1 END AS is_adult FROM users WHERE name LIKE 'A%' AND (age * 2) > 30 AND NOT (age = 100) AND ! (age = 0)";
     
     std::wcout << L"Testing SQL: " << sql << std::endl;
 

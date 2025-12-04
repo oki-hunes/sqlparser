@@ -15,6 +15,10 @@ namespace sqlparser::parser {
     using x3::unicode::alnum;
     using x3::unicode::space;
 
+    // wchar_t 用の symbols
+    template <typename T>
+    using wide_symbols = x3::symbols_parser<boost::spirit::char_encoding::standard_wide, T>;
+
     // --- 基本ルール ---
 
     // 予約語
@@ -29,7 +33,7 @@ namespace sqlparser::parser {
     auto const by_kw     = x3::lit(L"BY")[debug_by];
 
     // Keywords to exclude from identifiers
-    struct keywords_table : x3::symbols_parser<boost::spirit::char_encoding::standard_wide, x3::unused_type> {
+    struct keywords_table : wide_symbols<x3::unused_type> {
         keywords_table() {
             add
                 (L"SELECT", x3::unused)
@@ -47,6 +51,7 @@ namespace sqlparser::parser {
                 (L"END", x3::unused)
                 (L"CAST", x3::unused)
                 (L"INT", x3::unused)
+                (L"LIKE", x3::unused)
                 ;
         }
     } const keywords;
@@ -65,7 +70,7 @@ namespace sqlparser::parser {
     // --- 式 (Expression) のルール ---
 
     // 演算子シンボル
-    struct op_table : x3::symbols_parser<boost::spirit::char_encoding::standard_wide, ast::OpType> {
+    struct op_table : wide_symbols<ast::OpType> {
         op_table() {
             add
                 (L"=",  ast::OpType::EQ)
@@ -75,23 +80,47 @@ namespace sqlparser::parser {
                 (L"<",  ast::OpType::LT)
                 (L">=", ast::OpType::GE)
                 (L"<=", ast::OpType::LE)
+                (L"LIKE", ast::OpType::LIKE)
             ;
         }
-
-        op_table& add(std::wstring const& str, ast::OpType const& val) {
-            x3::symbols_parser<boost::spirit::char_encoding::standard_wide, ast::OpType>::add(str, val);
-            return *this;
-        }
-
-        op_table& operator()(std::wstring const& str, ast::OpType const& val) {
-            return add(str, val);
-        }
     } const op_symbol;
+
+    struct additive_op_table : wide_symbols<ast::OpType> {
+        additive_op_table() {
+            add
+                (L"+", ast::OpType::ADD)
+                (L"-", ast::OpType::SUB)
+            ;
+        }
+    } const additive_op;
+
+    struct multiplicative_op_table : wide_symbols<ast::OpType> {
+        multiplicative_op_table() {
+            add
+                (L"*", ast::OpType::MUL)
+                (L"/", ast::OpType::DIV)
+                (L"%", ast::OpType::MOD)
+            ;
+        }
+    } const multiplicative_op;
+
+    struct unary_op_table : wide_symbols<ast::OpType> {
+        unary_op_table() {
+            add
+                (L"!", ast::OpType::NOT)
+                (L"NOT", ast::OpType::NOT)
+                (L"-", ast::OpType::SUB) // Unary Minus
+            ;
+        }
+    } const unary_op;
 
     // 式の再帰定義のためのルール宣言
     x3::rule<class expression_class, ast::Expression> const expression = "expression";
     x3::rule<class term_class, ast::Expression>       const term       = "term";
     x3::rule<class factor_class, ast::Expression>     const factor     = "factor";
+    x3::rule<class sum_class, ast::Expression>        const sum        = "sum";
+    x3::rule<class product_class, ast::Expression>    const product    = "product";
+    x3::rule<class unary_class, ast::Expression>      const unary      = "unary";
     x3::rule<class primary_class, ast::Expression>    const primary    = "primary";
     x3::rule<class cast_class, ast::Cast>             const cast_expr  = "cast_expr";
     x3::rule<class function_call_class, ast::FunctionCall> const function_call = "function_call";
@@ -135,6 +164,11 @@ namespace sqlparser::parser {
 
     BOOST_SPIRIT_DEFINE(cast_expr, function_call, case_expr, when_clause);
 
+    // 文字列リテラル: '...'
+    x3::rule<class string_literal_class, ast::StringLiteral> const string_literal = "string_literal";
+    auto const string_literal_def = x3::lexeme[L"'" >> *(x3::standard_wide::char_ - L"'") >> L"'"];
+    BOOST_SPIRIT_DEFINE(string_literal);
+
     // primary: 数値 | CAST式 | 関数呼び出し | 識別子 | * | (式)
     // 注意: function_call は identifier で始まるため、identifier より先に記述する必要がある
     // "*" を追加して SELECT * に対応
@@ -144,8 +178,25 @@ namespace sqlparser::parser {
         | function_call
         | case_expr
         | identifier 
+        | string_literal
         | x3::string(L"*")
         | (L'(' >> expression >> L')');
+
+    // unary: 単項演算子
+    auto make_unary_op = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx); // tuple<OpType, Expression>
+        
+        ast::UnaryOp op_node;
+        op_node.op = at_c<0>(attr);
+        op_node.expr = at_c<1>(attr);
+        
+        x3::_val(ctx) = op_node;
+    };
+
+    auto const unary_def = 
+        (unary_op >> unary) [make_unary_op]
+        | primary;
 
     // ヘルパー: BinaryOp を構築するアクション
     auto make_binary_op = [](auto& ctx) {
@@ -158,19 +209,28 @@ namespace sqlparser::parser {
         if (rest.empty()) {
             x3::_val(ctx) = first;
         } else {
-            // 簡易的に最初の1つだけ処理 (a = b)
-            ast::BinaryOp op_node;
-            op_node.left = first;
-            op_node.op = at_c<0>(rest[0]);
-            op_node.right = at_c<1>(rest[0]);
-            x3::_val(ctx) = op_node;
+            ast::Expression current = first;
+            for (auto& item : rest) {
+                ast::BinaryOp op_node;
+                op_node.left = current;
+                op_node.op = at_c<0>(item);
+                op_node.right = at_c<1>(item);
+                current = op_node;
+            }
+            x3::_val(ctx) = current;
         }
     };
 
-    // factor: 比較演算 (primary op primary)
+    auto const product_def = 
+        (unary >> *(multiplicative_op >> unary)) [make_binary_op];
+
+    auto const sum_def = 
+        (product >> *(additive_op >> product)) [make_binary_op];
+
+    // factor: 比較演算 (sum op sum)
     // 属性: tuple<Expression, vector<tuple<OpType, Expression>>>
     auto const factor_def = 
-        (primary >> *(op_symbol >> primary)) [make_binary_op];
+        (sum >> *(op_symbol >> sum)) [make_binary_op];
 
     // term: AND 演算
     auto make_and_op = [](auto& ctx) {
@@ -222,7 +282,7 @@ namespace sqlparser::parser {
     auto const expression_def = 
         (term >> *(x3::no_case[x3::lit(L"OR")] >> term)) [make_or_op];
 
-    BOOST_SPIRIT_DEFINE(primary, factor, term, expression);
+    BOOST_SPIRIT_DEFINE(expression, term, factor, sum, product, unary, primary);
 
     // --- ResultColumn (expression の後に定義) ---
     x3::rule<class result_column_class, ast::ResultColumn> const result_column = "result_column";
