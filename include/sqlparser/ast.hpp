@@ -31,7 +31,8 @@ namespace sqlparser::ast {
     struct Case;
     struct StringLiteral;
     struct IntLiteral;
-    struct Between; // Added
+    struct Between;
+    struct In; // Added
 
     // 式を表すバリアント
     // IntLiteral: 数値
@@ -43,6 +44,7 @@ namespace sqlparser::ast {
     // FunctionCall: 関数呼び出し
     // Case: CASE式
     // Between: BETWEEN式
+    // In: IN式
     using Expression = boost::variant<
         IntLiteral,
         String, 
@@ -52,7 +54,8 @@ namespace sqlparser::ast {
         boost::recursive_wrapper<Cast>,
         boost::recursive_wrapper<FunctionCall>,
         boost::recursive_wrapper<Case>,
-        boost::recursive_wrapper<Between> // Added
+        boost::recursive_wrapper<Between>,
+        boost::recursive_wrapper<In> // Added
     >;
 
     // 数値リテラル構造体
@@ -110,6 +113,13 @@ namespace sqlparser::ast {
         Expression lower;
         Expression upper;
         bool not_between; // true if NOT BETWEEN
+    };
+
+    // IN式構造体
+    struct In {
+        Expression expr;
+        std::vector<Expression> values;
+        bool not_in; // true if NOT IN
     };
 
     // 選択リストの要素 (式 + オプションのエイリアス)
@@ -177,6 +187,7 @@ BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::FunctionCall, name, args)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WhenClause, when, then)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Case, arg, when_clauses, else_result)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Between, expr, lower, upper, not_between)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::In, expr, values, not_in)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::ResultColumn, expr, alias)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::OrderByElement, column, direction)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Join, type, table, on)

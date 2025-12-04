@@ -222,8 +222,14 @@ namespace sqlparser::parser {
         ast::Expression upper;
     };
 
-    // SuffixOp: IS NULL (OpType) または BETWEEN (BetweenArgs)
-    using SuffixOp = boost::variant<ast::OpType, BetweenArgs>;
+    // In の引数構造体
+    struct InArgs {
+        bool not_in;
+        std::vector<ast::Expression> values;
+    };
+
+    // SuffixOp: IS NULL (OpType) または BETWEEN (BetweenArgs) または IN (InArgs)
+    using SuffixOp = boost::variant<ast::OpType, BetweenArgs, InArgs>;
 
     auto make_suffix_op = [](auto& ctx) {
         using boost::fusion::at_c;
@@ -251,6 +257,13 @@ namespace sqlparser::parser {
                     between_node.upper = between_args->upper;
                     between_node.not_between = between_args->not_between;
                     current = between_node;
+                } else if (auto* in_args = boost::get<InArgs>(&op_variant)) {
+                    // IN
+                    ast::In in_node;
+                    in_node.expr = current;
+                    in_node.values = in_args->values;
+                    in_node.not_in = in_args->not_in;
+                    current = in_node;
                 }
             }
             x3::_val(ctx) = current;
@@ -267,13 +280,19 @@ namespace sqlparser::parser {
         (x3::no_case[x3::lit(L"NOT") >> x3::lit(L"BETWEEN")] >> x3::attr(true) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum)
         | (x3::no_case[x3::lit(L"BETWEEN")] >> x3::attr(false) >> sum >> x3::no_case[x3::lit(L"AND")] >> sum);
 
+    x3::rule<class in_op_class, InArgs> const in_op = "in_op";
+    auto const in_op_def = 
+        (x3::no_case[x3::lit(L"NOT") >> x3::lit(L"IN")] >> x3::attr(true) 
+         | x3::no_case[x3::lit(L"IN")] >> x3::attr(false))
+        >> x3::lit(L"(") >> (expression % L',') >> x3::lit(L")");
+
     x3::rule<class suffix_op_class, SuffixOp> const suffix_op = "suffix_op";
-    auto const suffix_op_def = is_null_op | between_op;
+    auto const suffix_op_def = is_null_op | between_op | in_op;
 
     auto const null_predicate_def = 
         (sum >> *suffix_op) [make_suffix_op];
 
-    BOOST_SPIRIT_DEFINE(is_null_op, between_op, suffix_op);
+    BOOST_SPIRIT_DEFINE(is_null_op, between_op, in_op, suffix_op);
 
     // BOOST_SPIRIT_DEFINE(null_predicate); // Moved to the main BOOST_SPIRIT_DEFINE
 
@@ -762,9 +781,15 @@ namespace sqlparser::parser {
 // Forward declaration of BetweenArgs for Fusion adaptation
 namespace sqlparser::parser {
     struct BetweenArgs;
+    struct InArgs;
 }
 
 BOOST_FUSION_ADAPT_STRUCT(
     sqlparser::parser::BetweenArgs,
     not_between, lower, upper
+)
+
+BOOST_FUSION_ADAPT_STRUCT(
+    sqlparser::parser::InArgs,
+    not_in, values
 )

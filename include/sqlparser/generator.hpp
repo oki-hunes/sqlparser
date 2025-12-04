@@ -120,6 +120,23 @@ namespace sqlparser {
             boost::apply_visitor(*this, b.upper);
             os << L")";
         }
+
+        void operator()(const ast::In& in) const {
+            os << L"(";
+            boost::apply_visitor(*this, in.expr);
+            if (in.not_in) {
+                os << L" NOT IN (";
+            } else {
+                os << L" IN (";
+            }
+            for (size_t i = 0; i < in.values.size(); ++i) {
+                boost::apply_visitor(*this, in.values[i]);
+                if (i < in.values.size() - 1) {
+                    os << L", ";
+                }
+            }
+            os << L"))";
+        }
     };
 
     // 前方宣言
