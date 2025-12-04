@@ -534,7 +534,9 @@ namespace sqlparser::parser {
             auto t_end = table_part.end();
             std::wstring table_name;
             if (!x3::phrase_parse(t_begin, t_end, identifier, x3::unicode::space, table_name)) return false;
-            table_ref = table_name;
+            ast::Table t;
+            t.name = table_name;
+            table_ref = t;
             return true;
         }
     }
@@ -551,26 +553,118 @@ namespace sqlparser::parser {
         auto real_end = end;
         while (real_end != begin && std::iswspace(*(real_end - 1))) --real_end;
 
+        // エイリアスのパース
+        // 末尾から識別子を探す
+        // ただし、サブクエリの場合は ')' の後にあるかもしれない
+        // テーブル名の場合は "table alias" または "table AS alias"
+        
+        // 簡易実装: 末尾の単語をエイリアス候補としてチェック
+        // ただし、AS がある場合もある
+        
+        // ここでは x3::phrase_parse を使って、
+        // (subquery | identifier) >> -( [AS] identifier )
+        // のようにパースしたいが、sql は文字列なので、
+        // 文字列全体をパースするルールを作るのが良い。
+
+        // サブクエリのルール
+        // '(' >> ... >> ')'
+        // これは再帰呼び出しが必要なので、x3::rule だけでは難しい（parse関数を呼びたい）
+        // しかし、parse関数は SelectStatement を返す。
+        
+        // 戦略:
+        // 1. 文字列全体をスキャンして、サブクエリかテーブル名か判断する
+        // 2. エイリアス部分を分離する
+
+        // エイリアス分離ロジック
+        // 後ろから見て、識別子があればエイリアスの可能性
+        // その前に AS があれば確定
+        // サブクエリの場合は ')' の後ろ
+        
+        // もっと単純に、x3::parse で構造を定義する
+        
+        // テーブル名 + エイリアス
+        auto const as_kw = x3::no_case[x3::lit(L"AS")];
+        auto const alias_def = -(as_kw) >> identifier;
+        
+        // テーブル名のみのパース
+        // identifier >> -alias_def
+        
+        // しかし、サブクエリの中身は parse() で処理したい。
+        
+        // 手順:
+        // 1. 先頭が '(' ならサブクエリ
         if (begin != real_end && *begin == L'(') {
-            auto rparen_it = real_end - 1;
-            while (rparen_it != begin && *rparen_it != L')') --rparen_it;
+            // 対応する閉じ括弧を探す
+            int paren_level = 0;
+            auto it = begin;
+            auto subquery_end = end;
             
-            if (*rparen_it == L')') {
-                 std::wstring subquery_sql(begin + 1, rparen_it);
-                 ast::SelectStatement sub_stmt;
-                 if (parse(subquery_sql, sub_stmt)) {
-                     table_ref = sub_stmt;
-                     return true;
-                 }
+            for (; it != end; ++it) {
+                if (*it == L'(') paren_level++;
+                else if (*it == L')') {
+                    paren_level--;
+                    if (paren_level == 0) {
+                        subquery_end = it + 1; // ')' の次
+                        break;
+                    }
+                }
             }
-            return false;
+            
+            if (subquery_end == end && paren_level > 0) return false; // 括弧が閉じていない
+            
+            // サブクエリ部分
+            std::wstring subquery_sql(begin + 1, subquery_end - 1);
+            ast::SelectStatement sub_stmt;
+            if (!parse(subquery_sql, sub_stmt)) return false;
+            
+            ast::Subquery sub_node;
+            sub_node.select = sub_stmt;
+            
+            // エイリアス部分
+            auto alias_begin = subquery_end;
+            while (alias_begin != end && std::iswspace(*alias_begin)) ++alias_begin;
+            
+            if (alias_begin != end) {
+                std::wstring alias_part(alias_begin, end);
+                std::wstring alias;
+                auto a_begin = alias_part.begin();
+                auto a_end = alias_part.end();
+                if (x3::phrase_parse(a_begin, a_end, alias_def, x3::unicode::space, alias)) {
+                    sub_node.alias = alias;
+                }
+            }
+            
+            table_ref = sub_node;
+            return true;
         } else {
-            std::wstring table_part(begin, real_end);
-            auto t_begin = table_part.begin();
-            auto t_end = table_part.end();
-            std::wstring table_name;
-            if (!x3::phrase_parse(t_begin, t_end, identifier, x3::unicode::space, table_name)) return false;
-            table_ref = table_name;
+            // テーブル名 + エイリアス
+            // identifier >> -( [AS] identifier )
+            
+            struct TableInfo {
+                std::wstring name;
+                boost::optional<std::wstring> alias;
+            };
+            
+            auto const table_parser = 
+                identifier >> -alias_def;
+                
+            // std::tuple<std::wstring, boost::optional<std::wstring>>
+            std::tuple<std::wstring, boost::optional<std::wstring>> attr;
+            
+            auto t_begin = begin;
+            auto t_end = real_end; // real_end はイテレータ
+            
+            // phrase_parse は入力イテレータを進める
+            if (!x3::phrase_parse(t_begin, t_end, table_parser, x3::unicode::space, attr)) return false;
+            
+            // 最後までパースできたか確認 (phrase_parse はスキップ後の位置を返す)
+            if (t_begin != t_end) return false; 
+            
+            ast::Table table_node;
+            table_node.name = std::get<0>(attr);
+            table_node.alias = std::get<1>(attr);
+            
+            table_ref = table_node;
             return true;
         }
     }

@@ -154,12 +154,19 @@ namespace sqlparser {
         std::wostream& os;
         TableReferencePrinter(std::wostream& os) : os(os) {}
 
-        void operator()(const String& s) const {
-            os << s;
+        void operator()(const ast::Table& t) const {
+            os << t.name;
+            if (t.alias) {
+                os << L" " << *t.alias;
+            }
         }
 
-        void operator()(const ast::SelectStatement& stmt) const {
-            os << L"(" << generate(stmt) << L")";
+        void operator()(const ast::Subquery& s) const {
+            // recursive_wrapper は get() で中身にアクセス
+            os << L"(" << generate(s.select.get()) << L")";
+            if (s.alias) {
+                os << L" " << *s.alias;
+            }
         }
     };
 

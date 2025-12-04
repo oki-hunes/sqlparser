@@ -14,8 +14,8 @@
 namespace x3 = boost::spirit::x3;
 
 int main() {
-    // テスト用のSQL (CASE式、算術演算、LIKE、IS NULL、BETWEEN、IN、文字列連結、ビット演算、UNIONを含む)
-    std::wstring sql = L"SELECT name, age FROM users WHERE age > 20 UNION SELECT name, age FROM employees WHERE age < 50 ORDER BY age DESC";
+    // テスト用のSQL (テーブルエイリアスとドット付きカラム参照)
+    std::wstring sql = L"SELECT u.name, u.age FROM users u WHERE u.age > 20";
     
     std::wcout << L"Testing SQL: " << sql << std::endl;
 

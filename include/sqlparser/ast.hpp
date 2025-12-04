@@ -139,10 +139,22 @@ namespace sqlparser::ast {
 
     struct SelectStatement;
 
-    // テーブル参照 (テーブル名 または サブクエリ)
+    // テーブル (名前 + エイリアス)
+    struct Table {
+        String name;
+        boost::optional<String> alias;
+    };
+
+    // サブクエリ (SELECT文 + エイリアス)
+    struct Subquery {
+        boost::recursive_wrapper<SelectStatement> select;
+        boost::optional<String> alias;
+    };
+
+    // テーブル参照 (テーブル または サブクエリ)
     using TableReference = boost::variant<
-        String,
-        boost::recursive_wrapper<SelectStatement>
+        Table,
+        Subquery
     >;
 
     // JOINの種類
@@ -197,6 +209,8 @@ namespace sqlparser::ast {
 }
 
 // Boost.Fusion で構造体をアダプト
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Table, name, alias)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Subquery, select, alias)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::StringLiteral, value)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::BinaryOp, op, left, right)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::UnaryOp, op, expr)
