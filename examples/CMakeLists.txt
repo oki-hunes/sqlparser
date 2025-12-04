@@ -1,2 +1,5 @@
 add_executable(simple_select simple_select.cpp)
 target_link_libraries(simple_select PRIVATE sqlparser)
+
+add_executable(ast_manipulation ast_manipulation.cpp)
+target_link_libraries(ast_manipulation PRIVATE sqlparser)
