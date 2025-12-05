@@ -15,3 +15,6 @@ target_link_libraries(check_union PRIVATE sqlparser)
 
 add_executable(pg_cast pg_cast.cpp)
 target_link_libraries(pg_cast PRIVATE sqlparser)
+
+add_executable(test_custom_function test_custom_function.cpp)
+target_link_libraries(test_custom_function PRIVATE sqlparser)
