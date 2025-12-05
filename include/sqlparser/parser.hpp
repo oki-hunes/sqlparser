@@ -163,6 +163,7 @@ namespace sqlparser::parser {
     x3::rule<class product_class, ast::Expression>    const product    = "product";
     x3::rule<class unary_class, ast::Expression>      const unary      = "unary";
     x3::rule<class primary_class, ast::Expression>    const primary    = "primary";
+    x3::rule<class postfix_cast_class, ast::Expression> const postfix_cast = "postfix_cast"; // Added
     x3::rule<class cast_class, ast::Cast>             const cast_expr  = "cast_expr";
     x3::rule<class function_call_class, ast::FunctionCall> const function_call = "function_call";
     x3::rule<class case_class, ast::Case>             const case_expr  = "case_expr";
@@ -172,14 +173,74 @@ namespace sqlparser::parser {
     auto const cast_kw = x3::no_case[x3::lit(L"CAST")];
     auto const as_kw = x3::no_case[x3::lit(L"AS")];
     
-    // 型名: 識別子 + オプションで (数値)
-    // 例: INT, VARCHAR(255)
-    // ここでは簡易的に identifier または identifier(int) を文字列として取得する
-    auto const type_name_def = 
-        x3::lexeme[ identifier >> -(L'(' >> x3::int_ >> L')') ];
+    // 型名: PostgreSQLの複雑な型名にも対応
+    // 例: INT, VARCHAR(255), TIMESTAMP WITH TIME ZONE, CHAR[10]
+    
+    // 複合キーワードの定義
+    auto const double_precision = x3::no_case[x3::lit(L"DOUBLE")] >> x3::no_case[x3::lit(L"PRECISION")];
+    auto const character_varying = x3::no_case[x3::lit(L"CHARACTER")] >> x3::no_case[x3::lit(L"VARYING")];
+    auto const bit_varying = x3::no_case[x3::lit(L"BIT")] >> x3::no_case[x3::lit(L"VARYING")];
+    
+    auto const with_time_zone = x3::no_case[x3::lit(L"WITH")] >> x3::no_case[x3::lit(L"TIME")] >> x3::no_case[x3::lit(L"ZONE")];
+    auto const without_time_zone = x3::no_case[x3::lit(L"WITHOUT")] >> x3::no_case[x3::lit(L"TIME")] >> x3::no_case[x3::lit(L"ZONE")];
+    
+    auto const timestamp_type = x3::no_case[x3::lit(L"TIMESTAMP")] >> -(with_time_zone | without_time_zone);
+    auto const time_type = x3::no_case[x3::lit(L"TIME")] >> -(with_time_zone | without_time_zone);
+
+    // その他のキーワード型
+    auto const simple_type_keyword = 
+        x3::no_case[x3::lit(L"INT")] | 
+        x3::no_case[x3::lit(L"INTEGER")] | 
+        x3::no_case[x3::lit(L"VARCHAR")] |
+        x3::no_case[x3::lit(L"CHAR")] |
+        x3::no_case[x3::lit(L"CHARACTER")] |
+        x3::no_case[x3::lit(L"TEXT")] |
+        x3::no_case[x3::lit(L"BOOLEAN")] |
+        x3::no_case[x3::lit(L"DATE")] |
+        x3::no_case[x3::lit(L"NUMERIC")] |
+        x3::no_case[x3::lit(L"DECIMAL")] |
+        x3::no_case[x3::lit(L"REAL")] |
+        x3::no_case[x3::lit(L"FLOAT")] |
+        x3::no_case[x3::lit(L"BIT")] |
+        x3::no_case[x3::lit(L"BYTEA")] |
+        x3::no_case[x3::lit(L"JSON")] |
+        x3::no_case[x3::lit(L"JSONB")] |
+        x3::no_case[x3::lit(L"UUID")];
+
+    // 任意の識別子 (キーワード含む)
+    auto const any_identifier = x3::lexeme[ 
+        +(alnum | char_(L'_') | char_(L'.')) 
+    ];
+
+    auto const type_base = 
+        double_precision |
+        character_varying |
+        bit_varying |
+        timestamp_type |
+        time_type |
+        simple_type_keyword |
+        any_identifier;
+
+    auto const type_args = 
+        L'(' >> x3::int_ >> -(L',' >> x3::int_) >> L')';
+
+    auto const array_suffix = 
+        x3::lit(L"[") >> -x3::int_ >> x3::lit(L"]");
+
+    x3::rule<class type_name_class, std::wstring> const type_name = "type_name";
+    
+    auto const type_name_def = x3::raw[
+        type_base >> -type_args >> *array_suffix
+    ] [ ([](auto& ctx){ 
+        auto& range = x3::_attr(ctx);
+        std::wstring str(range.begin(), range.end());
+        x3::_val(ctx) = str;
+    }) ];
+    
+    BOOST_SPIRIT_DEFINE(type_name);
 
     auto const cast_expr_def = 
-        cast_kw >> L'(' >> expression >> as_kw >> identifier >> L')';
+        cast_kw >> L'(' >> expression >> as_kw >> type_name >> L')';
     
     // 関数呼び出し
     // identifier ( args... )
@@ -231,6 +292,33 @@ namespace sqlparser::parser {
         | (L'(' >> expression >> L')') [ ([](auto& ctx){ x3::_val(ctx) = x3::_attr(ctx); }) ]
         ;
 
+    // Postfix Cast (::)
+    auto make_cast_op = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx); // tuple<Expression, vector<String>>
+        
+        auto& first = at_c<0>(attr);
+        auto& rest = at_c<1>(attr);
+
+        if (rest.empty()) {
+            x3::_val(ctx) = first;
+        } else {
+            ast::Expression current = first;
+            for (auto& t_name : rest) {
+                ast::Cast cast_node;
+                cast_node.expr = current;
+                cast_node.type_name = t_name;
+                current = cast_node;
+            }
+            x3::_val(ctx) = current;
+        }
+    };
+
+    auto const postfix_cast_def = 
+        (primary >> *(x3::lit(L"::") >> type_name)) [make_cast_op];
+    
+    BOOST_SPIRIT_DEFINE(postfix_cast);
+
     // unary: 単項演算子 (前置)
     auto make_unary_op = [](auto& ctx) {
         using boost::fusion::at_c;
@@ -245,7 +333,7 @@ namespace sqlparser::parser {
 
     auto const unary_def = 
         (unary_op >> unary) [make_unary_op]
-        | primary [ ([](auto& ctx){ x3::_val(ctx) = x3::_attr(ctx); }) ];
+        | postfix_cast [ ([](auto& ctx){ x3::_val(ctx) = x3::_attr(ctx); }) ];
 
     // null_predicate: IS NULL / IS NOT NULL / BETWEEN (後置)
     // sum の後に適用される
