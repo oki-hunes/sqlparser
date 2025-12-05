@@ -18,3 +18,6 @@ target_link_libraries(pg_cast PRIVATE sqlparser)
 
 add_executable(test_custom_function test_custom_function.cpp)
 target_link_libraries(test_custom_function PRIVATE sqlparser)
+
+add_executable(repro_issue repro_issue.cpp)
+target_link_libraries(repro_issue PRIVATE sqlparser)

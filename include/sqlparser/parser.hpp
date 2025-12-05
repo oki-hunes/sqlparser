@@ -205,7 +205,8 @@ namespace sqlparser::parser {
         x3::no_case[x3::lit(L"BYTEA")] |
         x3::no_case[x3::lit(L"JSON")] |
         x3::no_case[x3::lit(L"JSONB")] |
-        x3::no_case[x3::lit(L"UUID")];
+        x3::no_case[x3::lit(L"UUID")] |
+        x3::no_case[x3::lit(L"NVARCHAR")];
 
     // 任意の識別子 (キーワード含む)
     auto const any_identifier = x3::lexeme[ 
@@ -586,16 +587,8 @@ namespace sqlparser::parser {
             } else if (c == L')') {
                 if (paren_depth > 0) paren_depth--;
             } else if (paren_depth == 0) {
-                // キーワードチェック
-                if (pos + kw_len <= len) {
-                    bool match = true;
-                    for (size_t i = 0; i < kw_len; ++i) {
-                        if (std::towupper(sql[pos + i]) != std::towupper(kw[i])) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) return pos;
+                if (pos + kw_len <= len && is_iequal(sql.substr(pos, kw_len), kw)) {
+                    return pos;
                 }
             }
             pos++;
@@ -603,7 +596,25 @@ namespace sqlparser::parser {
         return std::wstring::npos;
     }
 
-    // テーブル参照をパースするヘルパー関数
+    // カンマで分割するヘルパー (括弧を考慮)
+    inline std::vector<std::wstring> split_by_comma(std::wstring const& str) {
+        std::vector<std::wstring> result;
+        int paren_depth = 0;
+        size_t start = 0;
+        for (size_t i = 0; i < str.length(); ++i) {
+            if (str[i] == L'(') paren_depth++;
+            else if (str[i] == L')') {
+                if (paren_depth > 0) paren_depth--;
+            } else if (str[i] == L',' && paren_depth == 0) {
+                result.push_back(str.substr(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.push_back(str.substr(start));
+        return result;
+    }
+
+    // テーブル参照をパースするヘルパー
     inline bool parse_table_reference(std::wstring const& sql, ast::TableReference& table_ref) {
         auto begin = sql.begin();
         auto end = sql.end();
@@ -913,98 +924,118 @@ namespace sqlparser::parser {
             // " FROM " の長さは 6
             std::wstring from_section = sql.substr(from_pos + 6, table_end - (from_pos + 6));
             
-            // JOIN を探す
-            // 簡易的に "JOIN" を探して、その前の単語を確認する
-            size_t current_pos = 0;
+            auto segments = split_by_comma(from_section);
             
-            // 最初のテーブルを探す (最初の JOIN まで、または最後まで)
-            size_t first_join_pos = std::wstring::npos;
-            ast::JoinType first_join_type = ast::JoinType::INNER; // ダミー
-            size_t join_keyword_len = 0;
-
-            // JOIN キーワードのリスト
-            struct JoinKw { std::wstring kw; ast::JoinType type; };
-            std::vector<JoinKw> join_kws = {
-                {L" LEFT JOIN ", ast::JoinType::LEFT},
-                {L" RIGHT JOIN ", ast::JoinType::RIGHT},
-                {L" FULL JOIN ", ast::JoinType::FULL},
-                {L" INNER JOIN ", ast::JoinType::INNER},
-                {L" JOIN ", ast::JoinType::INNER}
-            };
-
-            // 最も手前にある JOIN を探す
-            for (const auto& jk : join_kws) {
-                size_t p = find_keyword(from_section, jk.kw, 0);
-                if (p != std::wstring::npos) {
-                    if (first_join_pos == std::wstring::npos || p < first_join_pos) {
-                        first_join_pos = p;
-                        first_join_type = jk.type;
-                        join_keyword_len = jk.kw.length();
-                    }
-                }
-            }
-
-            std::wstring primary_table_str;
-            if (first_join_pos == std::wstring::npos) {
-                primary_table_str = from_section;
-            } else {
-                primary_table_str = from_section.substr(0, first_join_pos);
-            }
-
-            if (!parse_table_reference_impl(primary_table_str, ast.table)) return false;
-
-            // JOIN があればループ処理
-            current_pos = first_join_pos;
-            while (current_pos != std::wstring::npos) {
-                // current_pos は JOIN キーワードの開始位置
-                // join_keyword_len は見つかったキーワードの長さ
-                // first_join_type はそのタイプ
-
-                // 次のパートへ進む
-                size_t after_join = current_pos + join_keyword_len;
+            for (size_t i = 0; i < segments.size(); ++i) {
+                std::wstring segment = segments[i];
                 
-                // ON を探す
-                size_t on_pos = find_keyword(from_section, L" ON ", after_join);
-                if (on_pos == std::wstring::npos) return false; // ON がない
+                // JOIN キーワードのリスト
+                struct JoinKw { std::wstring kw; ast::JoinType type; };
+                std::vector<JoinKw> join_kws = {
+                    {L" LEFT JOIN ", ast::JoinType::LEFT},
+                    {L" RIGHT JOIN ", ast::JoinType::RIGHT},
+                    {L" FULL JOIN ", ast::JoinType::FULL},
+                    {L" INNER JOIN ", ast::JoinType::INNER},
+                    {L" JOIN ", ast::JoinType::INNER}
+                };
 
-                // テーブル部分
-                std::wstring joined_table_str = from_section.substr(after_join, on_pos - after_join);
-                ast::Join join_node;
-                join_node.type = first_join_type;
-                if (!parse_table_reference_impl(joined_table_str, join_node.table)) return false;
-
-                // 次の JOIN を探す
-                size_t next_join_pos = std::wstring::npos;
-                ast::JoinType next_join_type = ast::JoinType::INNER;
-                size_t next_join_len = 0;
+                // このセグメント内の最初の JOIN を探す
+                size_t current_pos = 0;
+                size_t first_join_pos = std::wstring::npos;
+                ast::JoinType first_join_type = ast::JoinType::INNER;
+                size_t join_keyword_len = 0;
 
                 for (const auto& jk : join_kws) {
-                    size_t p = find_keyword(from_section, jk.kw, on_pos + 4); // " ON " の後から
+                    size_t p = find_keyword(segment, jk.kw, 0);
                     if (p != std::wstring::npos) {
-                        if (next_join_pos == std::wstring::npos || p < next_join_pos) {
-                            next_join_pos = p;
-                            next_join_type = jk.type;
-                            next_join_len = jk.kw.length();
+                        if (first_join_pos == std::wstring::npos || p < first_join_pos) {
+                            first_join_pos = p;
+                            first_join_type = jk.type;
+                            join_keyword_len = jk.kw.length();
                         }
                     }
                 }
 
-                // 条件部分
-                size_t condition_start = on_pos + 4; // " ON " len
-                size_t condition_end = (next_join_pos == std::wstring::npos) ? from_section.length() : next_join_pos;
-                std::wstring condition_str = from_section.substr(condition_start, condition_end - condition_start);
+                // テーブル部分の切り出し
+                std::wstring table_part = (first_join_pos == std::wstring::npos) 
+                    ? segment 
+                    : segment.substr(0, first_join_pos);
 
-                // 条件パース
-                auto cond_begin = condition_str.begin();
-                auto cond_end = condition_str.end();
-                if (!x3::phrase_parse(cond_begin, cond_end, expression, x3::unicode::space, join_node.on)) return false;
+                ast::TableReference current_table_ref;
+                if (!parse_table_reference_impl(table_part, current_table_ref)) return false;
 
-                ast.joins.push_back(join_node);
+                if (i == 0) {
+                    // 最初のセグメントの最初のテーブル -> ast.table
+                    ast.table = current_table_ref;
+                } else {
+                    // 2つ目以降のセグメントの最初のテーブル -> Implicit Join (INNER JOIN 1=1)
+                    ast::Join implicit_join;
+                    implicit_join.type = ast::JoinType::INNER;
+                    implicit_join.table = current_table_ref;
+                    
+                    // ON 1=1
+                    ast::BinaryOp true_op;
+                    true_op.op = ast::OpType::EQ;
+                    true_op.left = ast::IntLiteral(1);
+                    true_op.right = ast::IntLiteral(1);
+                    implicit_join.on = true_op;
+                    
+                    ast.joins.push_back(implicit_join);
+                }
 
-                // ループ更新
-                current_pos = next_join_pos;
-                first_join_type = next_join_type;
-                join_keyword_len = next_join_len;
+                // Explicit Joins の処理
+                if (first_join_pos != std::wstring::npos) {
+                    current_pos = first_join_pos;
+                    
+                    while (current_pos != std::wstring::npos) {
+                        size_t next_search_pos = current_pos + join_keyword_len;
+                        
+                        // 次の JOIN を探す
+                        size_t next_join_pos = std::wstring::npos;
+                        ast::JoinType next_join_type = ast::JoinType::INNER;
+                        size_t next_join_len = 0;
+                        
+                        for (const auto& jk : join_kws) {
+                            size_t p = find_keyword(segment, jk.kw, next_search_pos);
+                            if (p != std::wstring::npos) {
+                                if (next_join_pos == std::wstring::npos || p < next_join_pos) {
+                                    next_join_pos = p;
+                                    next_join_type = jk.type;
+                                    next_join_len = jk.kw.length();
+                                }
+                            }
+                        }
+                        
+                        // 現在の JOIN の範囲
+                        size_t content_end = (next_join_pos == std::wstring::npos) ? segment.length() : next_join_pos;
+                        std::wstring join_content = segment.substr(next_search_pos, content_end - next_search_pos);
+                        
+                        // ON を探す
+                        size_t on_pos = find_keyword(join_content, L" ON ");
+                        if (on_pos == std::wstring::npos) return false;
+                        
+                        std::wstring join_table_str = join_content.substr(0, on_pos);
+                        std::wstring join_on_str = join_content.substr(on_pos + 4); // " ON " len 4
+                        
+                        ast::Join join_node;
+                        join_node.type = first_join_type;
+                        
+                        if (!parse_table_reference_impl(join_table_str, join_node.table)) return false;
+                        
+                        // ON 句のパース
+                        auto on_begin = join_on_str.begin();
+                        auto on_end = join_on_str.end();
+                        if (!x3::phrase_parse(on_begin, on_end, expression, x3::unicode::space, join_node.on)) return false;
+                        if (on_begin != on_end) return false;
+                        
+                        ast.joins.push_back(join_node);
+                        
+                        // 次のイテレーションへ
+                        current_pos = next_join_pos;
+                        first_join_type = next_join_type;
+                        join_keyword_len = next_join_len;
+                    }
+                }
             }
         }
 
