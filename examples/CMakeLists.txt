@@ -21,3 +21,9 @@ target_link_libraries(test_custom_function PRIVATE sqlparser)
 
 add_executable(repro_issue repro_issue.cpp)
 target_link_libraries(repro_issue PRIVATE sqlparser)
+
+add_executable(test_double_precision test_double_precision.cpp)
+target_link_libraries(test_double_precision PRIVATE sqlparser)
+
+add_executable(check_complex_query check_complex_query.cpp)
+target_link_libraries(check_complex_query PRIVATE sqlparser)

@@ -932,6 +932,9 @@ namespace sqlparser::parser {
                 // JOIN キーワードのリスト
                 struct JoinKw { std::wstring kw; ast::JoinType type; };
                 std::vector<JoinKw> join_kws = {
+                    {L" LEFT OUTER JOIN ", ast::JoinType::LEFT},
+                    {L" RIGHT OUTER JOIN ", ast::JoinType::RIGHT},
+                    {L" FULL OUTER JOIN ", ast::JoinType::FULL},
                     {L" LEFT JOIN ", ast::JoinType::LEFT},
                     {L" RIGHT JOIN ", ast::JoinType::RIGHT},
                     {L" FULL JOIN ", ast::JoinType::FULL},
