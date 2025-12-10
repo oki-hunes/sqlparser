@@ -27,3 +27,6 @@ target_link_libraries(test_double_precision PRIVATE sqlparser)
 
 add_executable(check_complex_query check_complex_query.cpp)
 target_link_libraries(check_complex_query PRIVATE sqlparser)
+
+add_executable(test_postgresql_types test_postgresql_types.cpp)
+target_link_libraries(test_postgresql_types PRIVATE sqlparser)

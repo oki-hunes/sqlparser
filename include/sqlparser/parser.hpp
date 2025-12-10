@@ -178,8 +178,12 @@ namespace sqlparser::parser {
     
     // 複合キーワードの定義
     auto const double_precision = x3::no_case[x3::lit(L"DOUBLE")] >> x3::no_case[x3::lit(L"PRECISION")];
-    auto const character_varying = x3::no_case[x3::lit(L"CHARACTER")] >> x3::no_case[x3::lit(L"VARYING")];
-    auto const bit_varying = x3::no_case[x3::lit(L"BIT")] >> x3::no_case[x3::lit(L"VARYING")];
+    
+    // CHARACTER [VARYING]
+    auto const character_type = x3::no_case[x3::lit(L"CHARACTER")] >> -x3::no_case[x3::lit(L"VARYING")];
+    
+    // BIT [VARYING]
+    auto const bit_type = x3::no_case[x3::lit(L"BIT")] >> -x3::no_case[x3::lit(L"VARYING")];
     
     auto const with_time_zone = x3::no_case[x3::lit(L"WITH")] >> x3::no_case[x3::lit(L"TIME")] >> x3::no_case[x3::lit(L"ZONE")];
     auto const without_time_zone = x3::no_case[x3::lit(L"WITHOUT")] >> x3::no_case[x3::lit(L"TIME")] >> x3::no_case[x3::lit(L"ZONE")];
@@ -187,25 +191,70 @@ namespace sqlparser::parser {
     auto const timestamp_type = x3::no_case[x3::lit(L"TIMESTAMP")] >> -(with_time_zone | without_time_zone);
     auto const time_type = x3::no_case[x3::lit(L"TIME")] >> -(with_time_zone | without_time_zone);
 
+    // Special time types (must be checked before TIME/TIMESTAMP)
+    auto const special_time_types = 
+        x3::no_case[x3::lit(L"TIMESTAMPTZ")] |
+        x3::no_case[x3::lit(L"TIMETZ")];
+
+    // Interval type
+    auto const interval_fields = 
+        x3::no_case[x3::lit(L"YEAR")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"MONTH")] |
+        x3::no_case[x3::lit(L"DAY")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"SECOND")] |
+        x3::no_case[x3::lit(L"DAY")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"MINUTE")] |
+        x3::no_case[x3::lit(L"DAY")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"HOUR")] |
+        x3::no_case[x3::lit(L"HOUR")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"SECOND")] |
+        x3::no_case[x3::lit(L"HOUR")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"MINUTE")] |
+        x3::no_case[x3::lit(L"MINUTE")] >> x3::no_case[x3::lit(L"TO")] >> x3::no_case[x3::lit(L"SECOND")] |
+        x3::no_case[x3::lit(L"YEAR")] |
+        x3::no_case[x3::lit(L"MONTH")] |
+        x3::no_case[x3::lit(L"DAY")] |
+        x3::no_case[x3::lit(L"HOUR")] |
+        x3::no_case[x3::lit(L"MINUTE")] |
+        x3::no_case[x3::lit(L"SECOND")];
+
+    auto const interval_type = x3::no_case[x3::lit(L"INTERVAL")] >> -interval_fields;
+
     // その他のキーワード型
     auto const simple_type_keyword = 
-        x3::no_case[x3::lit(L"INT")] | 
-        x3::no_case[x3::lit(L"INTEGER")] | 
-        x3::no_case[x3::lit(L"VARCHAR")] |
-        x3::no_case[x3::lit(L"CHAR")] |
-        x3::no_case[x3::lit(L"CHARACTER")] |
-        x3::no_case[x3::lit(L"TEXT")] |
+        x3::no_case[x3::lit(L"BIGINT")] |
+        x3::no_case[x3::lit(L"INT8")] |
+        x3::no_case[x3::lit(L"BIGSERIAL")] |
+        x3::no_case[x3::lit(L"SERIAL8")] |
+        x3::no_case[x3::lit(L"VARBIT")] |
         x3::no_case[x3::lit(L"BOOLEAN")] |
+        x3::no_case[x3::lit(L"BOOL")] |
+        x3::no_case[x3::lit(L"BYTEA")] |
+        x3::no_case[x3::lit(L"CIDR")] |
         x3::no_case[x3::lit(L"DATE")] |
+        x3::no_case[x3::lit(L"FLOAT8")] |
+        x3::no_case[x3::lit(L"INET")] |
+        x3::no_case[x3::lit(L"INTEGER")] |
+        x3::no_case[x3::lit(L"INT4")] |
+        x3::no_case[x3::lit(L"INT2")] |
+        x3::no_case[x3::lit(L"INT")] |
+        x3::no_case[x3::lit(L"JSONB")] |
+        x3::no_case[x3::lit(L"JSON")] |
+        x3::no_case[x3::lit(L"MACADDR")] |
+        x3::no_case[x3::lit(L"MONEY")] |
         x3::no_case[x3::lit(L"NUMERIC")] |
         x3::no_case[x3::lit(L"DECIMAL")] |
+        x3::no_case[x3::lit(L"PG_LSN")] |
         x3::no_case[x3::lit(L"REAL")] |
+        x3::no_case[x3::lit(L"FLOAT4")] |
         x3::no_case[x3::lit(L"FLOAT")] |
-        x3::no_case[x3::lit(L"BIT")] |
-        x3::no_case[x3::lit(L"BYTEA")] |
-        x3::no_case[x3::lit(L"JSON")] |
-        x3::no_case[x3::lit(L"JSONB")] |
+        x3::no_case[x3::lit(L"SMALLINT")] |
+        x3::no_case[x3::lit(L"SMALLSERIAL")] |
+        x3::no_case[x3::lit(L"SERIAL4")] |
+        x3::no_case[x3::lit(L"SERIAL2")] |
+        x3::no_case[x3::lit(L"SERIAL")] |
+        x3::no_case[x3::lit(L"TEXT")] |
+        x3::no_case[x3::lit(L"TSQUERY")] |
+        x3::no_case[x3::lit(L"TSVECTOR")] |
+        x3::no_case[x3::lit(L"TXID_SNAPSHOT")] |
         x3::no_case[x3::lit(L"UUID")] |
+        x3::no_case[x3::lit(L"XML")] |
+        x3::no_case[x3::lit(L"VARCHAR")] |
+        x3::no_case[x3::lit(L"CHAR")] |
         x3::no_case[x3::lit(L"NVARCHAR")];
 
     // 任意の識別子 (キーワード含む)
@@ -215,10 +264,12 @@ namespace sqlparser::parser {
 
     auto const type_base = 
         double_precision |
-        character_varying |
-        bit_varying |
+        character_type |
+        bit_type |
+        special_time_types |
         timestamp_type |
         time_type |
+        interval_type |
         simple_type_keyword |
         any_identifier;
 
