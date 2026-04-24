@@ -19,14 +19,15 @@ target_link_libraries(pg_cast PRIVATE sqlparser)
 add_executable(test_custom_function test_custom_function.cpp)
 target_link_libraries(test_custom_function PRIVATE sqlparser)
 
-add_executable(repro_issue repro_issue.cpp)
-target_link_libraries(repro_issue PRIVATE sqlparser)
-
 add_executable(test_double_precision test_double_precision.cpp)
 target_link_libraries(test_double_precision PRIVATE sqlparser)
 
-add_executable(check_complex_query check_complex_query.cpp)
-target_link_libraries(check_complex_query PRIVATE sqlparser)
+
+add_executable(add_exsiting_sql add_exsiting_sql.cpp)
+target_link_libraries(add_exsiting_sql PRIVATE sqlparser)
+
+add_executable(sql_check sql_check.cpp)
+target_link_libraries(sql_check PRIVATE sqlparser)
 
 add_executable(test_postgresql_types test_postgresql_types.cpp)
 target_link_libraries(test_postgresql_types PRIVATE sqlparser)

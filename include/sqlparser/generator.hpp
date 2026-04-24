@@ -144,6 +144,32 @@ namespace sqlparser {
             }
             os << L"))";
         }
+
+        void operator()(const ast::WindowFunction& wf) const {
+            os << wf.func.name << L"(";
+            for (size_t i = 0; i < wf.func.args.size(); ++i) {
+                boost::apply_visitor(*this, wf.func.args[i]);
+                if (i < wf.func.args.size() - 1) os << L", ";
+            }
+            os << L") OVER (";
+            if (!wf.window.partitionBy.empty()) {
+                os << L"PARTITION BY ";
+                for (size_t i = 0; i < wf.window.partitionBy.size(); ++i) {
+                    boost::apply_visitor(*this, wf.window.partitionBy[i]);
+                    if (i < wf.window.partitionBy.size() - 1) os << L", ";
+                }
+                if (!wf.window.orderBy.empty()) os << L" ";
+            }
+            if (!wf.window.orderBy.empty()) {
+                os << L"ORDER BY ";
+                for (size_t i = 0; i < wf.window.orderBy.size(); ++i) {
+                    os << wf.window.orderBy[i].column;
+                    if (wf.window.orderBy[i].direction == ast::OrderDirection::DESC) os << L" DESC";
+                    if (i < wf.window.orderBy.size() - 1) os << L", ";
+                }
+            }
+            os << L")";
+        }
     };
 
     // 前方宣言

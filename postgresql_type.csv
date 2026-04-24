@@ -1,0 +1,38 @@
+﻿型名,エイリアス,説明
+bigint,int8,8バイト符号付き整数
+bigserial,serial8,自動増分8バイト整数
+bit [ (n) ],,固定長ビット列
+bit varying [ (n) ],varbit,可変長ビット列
+boolean,bool,論理値（真/偽）
+box,,平面上の矩形
+bytea,,"バイナリデータ（""バイトの配列（byte array）""）"
+character [ (n) ],char [ (n) ],固定長文字列
+character varying [ (n) ],varchar [ (n) ],可変長文字列
+cidr,,IPv4もしくはIPv6ネットワークアドレス
+circle,,平面上の円
+date,,暦の日付（年月日）
+double precision,float8,倍精度浮動小数点（8バイト）
+inet,,IPv4もしくはIPv6ホストアドレス
+integer,"int, int4",4バイト符号付き整数
+interval [ fields ] [ (p) ],,時間間隔
+json,,テキストのJSONデータ
+jsonb,,"バイナリ JSON データ, 展開型"
+macaddr,,MAC（メディアアクセスコントロール）アドレス
+money,,貨幣金額
+"numeric [ (p, s) ]","decimal [ (p, s) ]",精度の選択可能な高精度数値
+pg_lsn,,PostgreSQLログ順序番号
+real,float4,単精度浮動小数点（4バイト）
+smallint,int2,2バイト符号付き整数
+smallserial,serial2,自動増分2バイト整数
+serial,serial4,自動増分4バイト整数
+text,,可変長文字列
+time [ (p) ] [ without time zone ],,時刻（時間帯なし）
+time [ (p) ] with time zone,timetz,時間帯付き時刻
+timestamp [ (p) ] [ without time zone ],,日付と時刻（時間帯なし）
+timestamp [ (p) ] with time zone,timestamptz,時間帯付き日付と時刻
+tsquery,,テキスト検索問い合わせ
+tsvector,,テキスト検索文書
+txid_snapshot,,ユーザレベルのトランザクションIDスナップショット
+uuid,,汎用一意識別子
+xml,,XMLデータ
+,,

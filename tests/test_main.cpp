@@ -197,6 +197,87 @@ bool test_subquery_alias() {
     return true;
 }
 
+// --- Window Function Tests ---
+
+bool test_window_row_number() {
+    // ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
+    std::wstring sql = L"SELECT ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) FROM emp";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.columns.size() == 1);
+    // 結果カラムが WindowFunction であることを確認
+    auto* wf = boost::get<sqlparser::ast::WindowFunction>(&ast.columns[0].expr);
+    ASSERT_TRUE(wf != nullptr);
+    ASSERT_EQ(std::wstring(L"ROW_NUMBER"), wf->func.name);
+    ASSERT_TRUE(wf->window.partitionBy.size() == 1);
+    ASSERT_TRUE(wf->window.orderBy.size() == 1);
+    ASSERT_EQ(std::wstring(L"salary"), wf->window.orderBy[0].column);
+    ASSERT_TRUE(wf->window.orderBy[0].direction == sqlparser::ast::OrderDirection::DESC);
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_window_partition_only() {
+    // SUM(salary) OVER (PARTITION BY dept) - ORDER BY なし
+    std::wstring sql = L"SELECT SUM(salary) OVER (PARTITION BY dept) FROM emp";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.columns.size() == 1);
+    auto* wf = boost::get<sqlparser::ast::WindowFunction>(&ast.columns[0].expr);
+    ASSERT_TRUE(wf != nullptr);
+    ASSERT_EQ(std::wstring(L"SUM"), wf->func.name);
+    ASSERT_TRUE(wf->func.args.size() == 1);
+    ASSERT_TRUE(wf->window.partitionBy.size() == 1);
+    ASSERT_TRUE(wf->window.orderBy.empty());
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_window_order_only() {
+    // RANK() OVER (ORDER BY score DESC) - PARTITION BY なし
+    std::wstring sql = L"SELECT RANK() OVER (ORDER BY score DESC) FROM results";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.columns.size() == 1);
+    auto* wf = boost::get<sqlparser::ast::WindowFunction>(&ast.columns[0].expr);
+    ASSERT_TRUE(wf != nullptr);
+    ASSERT_EQ(std::wstring(L"RANK"), wf->func.name);
+    ASSERT_TRUE(wf->window.partitionBy.empty());
+    ASSERT_TRUE(wf->window.orderBy.size() == 1);
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_window_multi_partition() {
+    // OVER (PARTITION BY a, b ORDER BY c)
+    std::wstring sql = L"SELECT SUM(val) OVER (PARTITION BY a, b ORDER BY c) FROM tbl";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    auto* wf = boost::get<sqlparser::ast::WindowFunction>(&ast.columns[0].expr);
+    ASSERT_TRUE(wf != nullptr);
+    ASSERT_TRUE(wf->window.partitionBy.size() == 2);
+    ASSERT_TRUE(wf->window.orderBy.size() == 1);
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_window_mixed_columns() {
+    // ウィンドウ関数と通常カラムが混在
+    std::wstring sql = L"SELECT id, ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary) FROM emp";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.columns.size() == 2);
+    auto* wf = boost::get<sqlparser::ast::WindowFunction>(&ast.columns[1].expr);
+    ASSERT_TRUE(wf != nullptr);
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
 int main() {
     run_test("Basic Select", test_basic_select);
     run_test("Select Columns", test_select_columns);
@@ -215,6 +296,11 @@ int main() {
     run_test("Table Alias", test_table_alias);
     run_test("Table Alias AS", test_table_alias_as);
     run_test("Subquery Alias", test_subquery_alias);
+    run_test("Window ROW_NUMBER", test_window_row_number);
+    run_test("Window Partition Only", test_window_partition_only);
+    run_test("Window Order Only", test_window_order_only);
+    run_test("Window Multi Partition", test_window_multi_partition);
+    run_test("Window Mixed Columns", test_window_mixed_columns);
 
     std::cout << "\nSummary: " << g_tests_passed << " passed, " << g_tests_failed << " failed." << std::endl;
     return g_tests_failed == 0 ? 0 : 1;

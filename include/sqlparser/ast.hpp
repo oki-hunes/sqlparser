@@ -36,6 +36,7 @@ namespace sqlparser::ast {
     struct IntLiteral;
     struct Between;
     struct In; // Added
+    struct WindowFunction;
 
     // 式を表すバリアント
     // IntLiteral: 数値
@@ -58,7 +59,8 @@ namespace sqlparser::ast {
         boost::recursive_wrapper<FunctionCall>,
         boost::recursive_wrapper<Case>,
         boost::recursive_wrapper<Between>,
-        boost::recursive_wrapper<In> // Added
+        boost::recursive_wrapper<In>,
+        boost::recursive_wrapper<WindowFunction>
     >;
 
     // 数値リテラル構造体
@@ -135,6 +137,18 @@ namespace sqlparser::ast {
     struct OrderByElement {
         String column;
         OrderDirection direction;
+    };
+
+    // ウィンドウ仕様 (OVER句の中身)
+    struct WindowSpec {
+        std::vector<Expression> partitionBy; // PARTITION BY句 (空なら指定なし)
+        std::vector<OrderByElement> orderBy; // ORDER BY句 (空なら指定なし)
+    };
+
+    // ウィンドウ関数 (function OVER (...))
+    struct WindowFunction {
+        FunctionCall func;
+        WindowSpec window;
     };
 
     struct SelectStatement;
@@ -225,4 +239,6 @@ BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::OrderByElement, column, direction)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Join, type, table, on)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::UnionClause, type, select)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::SelectStatement, quantifier, columns, table, joins, where, groupBy, having, orderBy, limit, offset, unions)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WindowSpec, partitionBy, orderBy)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WindowFunction, func, window)
 

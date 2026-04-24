@@ -32,6 +32,8 @@ namespace sqlparser::parser {
         std::wcout << L"Debug: matched BY" << std::endl;
     };
     auto const by_kw     = x3::lit(L"BY")[debug_by];
+    auto const over_kw      = x3::no_case[x3::lit(L"OVER")];
+    auto const partition_kw = x3::no_case[x3::lit(L"PARTITION")];
 
     // Keywords to exclude from identifiers
     struct keywords_table : wide_symbols<x3::unused_type> {
@@ -53,6 +55,8 @@ namespace sqlparser::parser {
                 (L"CAST", x3::unused)
                 (L"INT", x3::unused)
                 (L"LIKE", x3::unused)
+                (L"OVER", x3::unused)
+                (L"PARTITION", x3::unused)
                 ;
         }
     } const keywords;
@@ -168,6 +172,8 @@ namespace sqlparser::parser {
     x3::rule<class function_call_class, ast::FunctionCall> const function_call = "function_call";
     x3::rule<class case_class, ast::Case>             const case_expr  = "case_expr";
     x3::rule<class when_clause_class, ast::WhenClause> const when_clause = "when_clause";
+    x3::rule<class window_spec_class, ast::WindowSpec> const window_spec = "window_spec";
+    x3::rule<class window_function_class, ast::WindowFunction> const window_function_expr = "window_function_expr";
 
     // CAST式
     auto const cast_kw = x3::no_case[x3::lit(L"CAST")];
@@ -296,8 +302,16 @@ namespace sqlparser::parser {
     
     // 関数呼び出し
     // identifier ( args... )
-    auto const function_call_def = 
-        identifier >> L'(' >> (expression % L',') >> L')';
+    auto make_function_call = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx);
+        ast::FunctionCall fc;
+        fc.name = at_c<0>(attr);
+        if (at_c<1>(attr)) fc.args = *at_c<1>(attr);
+        x3::_val(ctx) = fc;
+    };
+    auto const function_call_def =
+        (identifier >> L'(' >> -(expression % L',') >> L')') [make_function_call];
 
     // CASE式
     auto const case_kw = x3::no_case[x3::lit(L"CASE")];
@@ -318,6 +332,19 @@ namespace sqlparser::parser {
 
     BOOST_SPIRIT_DEFINE(cast_expr, function_call, case_expr, when_clause);
 
+    // ウィンドウ関数 (function_call OVER (...))
+    auto make_window_function = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx);
+        ast::WindowFunction wf;
+        wf.func = at_c<0>(attr);
+        wf.window = at_c<1>(attr);
+        x3::_val(ctx) = wf;
+    };
+    auto const window_function_expr_def =
+        (function_call >> window_spec) [make_window_function];
+    BOOST_SPIRIT_DEFINE(window_function_expr);
+
     // 文字列リテラル: '...'
     x3::rule<class string_literal_class, ast::StringLiteral> const string_literal = "string_literal";
     auto const string_literal_def = x3::lexeme[L"'" >> *(x3::standard_wide::char_ - L"'") >> L"'"];
@@ -336,6 +363,7 @@ namespace sqlparser::parser {
     auto const primary_def = 
         int_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | cast_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | window_function_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | function_call [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | case_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | identifier [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
@@ -530,8 +558,13 @@ namespace sqlparser::parser {
         }
     };
 
+    // word-boundary-aware AND/OR: "AND"/"OR" の後ろが英数字・アンダースコアなら不一致
+    // 例: "ORDER" の "OR" や "ANDROID" の "AND" を誤マッチしないようにする
+    auto const and_kw_word = x3::lexeme[x3::no_case[x3::lit(L"AND")] >> !(alnum | char_(L'_'))];
+    auto const or_kw_word  = x3::lexeme[x3::no_case[x3::lit(L"OR")]  >> !(alnum | char_(L'_'))];
+
     auto const term_def = 
-        (factor >> *(x3::no_case[x3::lit(L"AND")] >> factor)) [make_and_op];
+        (factor >> *(and_kw_word >> factor)) [make_and_op];
 
     // expression: OR 演算
     auto make_or_op = [](auto& ctx) {
@@ -556,7 +589,7 @@ namespace sqlparser::parser {
     };
 
     auto const expression_def = 
-        (term >> *(x3::no_case[x3::lit(L"OR")] >> term)) [make_or_op];
+        (term >> *(or_kw_word >> term)) [make_or_op];
 
     BOOST_SPIRIT_DEFINE(expression, term, factor, null_predicate, bitwise, sum, product, unary, primary);
 
@@ -602,6 +635,22 @@ namespace sqlparser::parser {
     // ORDER BY リスト (ORDER BY キーワードは含まない)
     auto const order_by_list = 
         (order_by_element % L',');
+
+    // ウィンドウ仕様 (OVER (...) 句)
+    auto make_window_spec = [](auto& ctx) {
+        using boost::fusion::at_c;
+        auto& attr = x3::_attr(ctx);
+        ast::WindowSpec ws;
+        if (at_c<0>(attr)) ws.partitionBy = *at_c<0>(attr);
+        if (at_c<1>(attr)) ws.orderBy = *at_c<1>(attr);
+        x3::_val(ctx) = ws;
+    };
+    auto const window_spec_def =
+        (x3::omit[over_kw] >> L'('
+         >> -(x3::omit[partition_kw >> by_kw] >> (expression % L','))
+         >> -(x3::omit[order_kw >> by_kw] >> order_by_list)
+         >> L')') [make_window_spec];
+    BOOST_SPIRIT_DEFINE(window_spec);
 
     // GROUP BY リスト
     auto const group_by_list = 
