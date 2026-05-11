@@ -260,6 +260,7 @@ namespace sqlparser::parser {
         x3::no_case[x3::lit(L"UUID")] |
         x3::no_case[x3::lit(L"XML")] |
         x3::no_case[x3::lit(L"VARCHAR")] |
+        x3::no_case[x3::lit(L"VARCHAR2")] |
         x3::no_case[x3::lit(L"CHAR")] |
         x3::no_case[x3::lit(L"NVARCHAR")];
 
