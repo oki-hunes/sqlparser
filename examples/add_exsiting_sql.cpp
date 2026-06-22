@@ -99,5 +99,11 @@ int main() {
         8
     );
 
+    demo(
+        L"NOT EXISTS with subquery",
+        L"select S.SHAPEID, 307, S.SYMBOLRAD, 1.0 FROM GIS.WATER_POINT S WHERE (S.CLASSCD = 1) AND NOT EXISTS (SELECT * FROM GIS.WATER_METER_ATTR A WHERE (S.CODE = A.BASE_CUSTOMER_CD)) order by S.SHAPEID",
+        111
+    );
+
     return 0;
 }

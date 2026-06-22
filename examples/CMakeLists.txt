@@ -31,3 +31,6 @@ target_link_libraries(sql_check PRIVATE sqlparser)
 
 add_executable(test_postgresql_types test_postgresql_types.cpp)
 target_link_libraries(test_postgresql_types PRIVATE sqlparser)
+
+add_executable(print_ast print_ast.cpp)
+target_link_libraries(print_ast PRIVATE sqlparser)
