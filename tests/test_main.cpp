@@ -278,6 +278,85 @@ bool test_window_mixed_columns() {
     return true;
 }
 
+// --- EXISTS / NOT EXISTS Tests ---
+
+bool test_exists_simple() {
+    // EXISTS (サブクエリ) の基本テスト
+    std::wstring sql = L"SELECT * FROM t1 WHERE EXISTS (SELECT * FROM t2)";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    // WHERE 句が Exists であることを確認
+    ASSERT_TRUE(ast.where.has_value());
+    auto* exists_node = boost::get<sqlparser::ast::Exists>(&(*ast.where));
+    ASSERT_TRUE(exists_node != nullptr);
+    // ラウンドトリップ
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_not_exists_simple() {
+    // NOT EXISTS (サブクエリ) の基本テスト
+    // NOT は単項演算子として Exists に適用されるため、生成時に括弧が付く
+    std::wstring input_sql    = L"SELECT * FROM t1 WHERE NOT EXISTS (SELECT * FROM t2)";
+    std::wstring expected_sql = L"SELECT * FROM t1 WHERE (NOT EXISTS (SELECT * FROM t2))";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(input_sql, ast));
+    // WHERE 句が UnaryOp(NOT, Exists) であることを確認
+    ASSERT_TRUE(ast.where.has_value());
+    auto* unary_node = boost::get<sqlparser::ast::UnaryOp>(&(*ast.where));
+    ASSERT_TRUE(unary_node != nullptr);
+    ASSERT_TRUE(unary_node->op == sqlparser::ast::OpType::NOT);
+    auto* exists_node = boost::get<sqlparser::ast::Exists>(&(unary_node->expr));
+    ASSERT_TRUE(exists_node != nullptr);
+    // ラウンドトリップ
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(expected_sql, generated);
+    return true;
+}
+
+bool test_exists_with_subquery_condition() {
+    // サブクエリ側に WHERE 句がある EXISTS
+    std::wstring sql = L"SELECT * FROM t1 WHERE EXISTS (SELECT * FROM t2 WHERE (t1.id = t2.id))";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.where.has_value());
+    auto* exists_node = boost::get<sqlparser::ast::Exists>(&(*ast.where));
+    ASSERT_TRUE(exists_node != nullptr);
+    // サブクエリに WHERE が存在することを確認
+    ASSERT_TRUE(exists_node->subquery.get().where.has_value());
+    std::wstring generated = sqlparser::generate(ast);
+    ASSERT_EQ(sql, generated);
+    return true;
+}
+
+bool test_not_exists_with_and() {
+    // (条件) AND NOT EXISTS (サブクエリ) パターン
+    std::wstring input_sql = L"SELECT * FROM t1 WHERE (t1.status = 1) AND NOT EXISTS (SELECT * FROM t2 WHERE (t1.id = t2.ref_id))";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(input_sql, ast));
+    ASSERT_TRUE(ast.where.has_value());
+    // WHERE 全体が BinaryOp(AND, ..., UnaryOp(NOT, Exists)) であることを確認
+    auto* and_op = boost::get<sqlparser::ast::BinaryOp>(&(*ast.where));
+    ASSERT_TRUE(and_op != nullptr);
+    ASSERT_TRUE(and_op->op == sqlparser::ast::OpType::AND);
+    auto* unary_node = boost::get<sqlparser::ast::UnaryOp>(&(and_op->right));
+    ASSERT_TRUE(unary_node != nullptr);
+    ASSERT_TRUE(unary_node->op == sqlparser::ast::OpType::NOT);
+    auto* exists_node = boost::get<sqlparser::ast::Exists>(&(unary_node->expr));
+    ASSERT_TRUE(exists_node != nullptr);
+    return true;
+}
+
+bool test_not_exists_original_sql() {
+    // ユーザーが報告した実際のSQLのパース成功確認
+    std::wstring sql = L"select S.SHAPEID, 307, S.SYMBOLRAD FROM GIS.WATER_POINT S WHERE (S.CLASSCD = 1) AND NOT EXISTS (SELECT * FROM GIS.WATER_METER_ATTR A WHERE (S.CODE = A.BASE_CUSTOMER_CD)) order by S.SHAPEID";
+    sqlparser::ast::SelectStatement ast;
+    ASSERT_TRUE(sqlparser::parser::parse(sql, ast));
+    ASSERT_TRUE(ast.where.has_value());
+    return true;
+}
+
 int main() {
     run_test("Basic Select", test_basic_select);
     run_test("Select Columns", test_select_columns);
@@ -301,6 +380,11 @@ int main() {
     run_test("Window Order Only", test_window_order_only);
     run_test("Window Multi Partition", test_window_multi_partition);
     run_test("Window Mixed Columns", test_window_mixed_columns);
+    run_test("EXISTS Simple", test_exists_simple);
+    run_test("NOT EXISTS Simple", test_not_exists_simple);
+    run_test("EXISTS With Subquery Condition", test_exists_with_subquery_condition);
+    run_test("NOT EXISTS With AND", test_not_exists_with_and);
+    run_test("NOT EXISTS Original SQL", test_not_exists_original_sql);
 
     std::cout << "\nSummary: " << g_tests_passed << " passed, " << g_tests_failed << " failed." << std::endl;
     return g_tests_failed == 0 ? 0 : 1;

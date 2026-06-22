@@ -4,7 +4,10 @@
 #include <boost/variant/apply_visitor.hpp>
 
 namespace sqlparser {
-    
+
+    // 前方宣言
+    inline String generate(const ast::SelectStatement& ast);
+
     // Expression を文字列化する Visitor
     struct ExpressionPrinter : boost::static_visitor<void> {
         std::wostream& os;
@@ -145,6 +148,12 @@ namespace sqlparser {
             os << L"))";
         }
 
+        void operator()(const ast::Exists& e) const {
+            os << L"EXISTS (";
+            os << generate(e.subquery.get());
+            os << L")";
+        }
+
         void operator()(const ast::WindowFunction& wf) const {
             os << wf.func.name << L"(";
             for (size_t i = 0; i < wf.func.args.size(); ++i) {
@@ -171,9 +180,6 @@ namespace sqlparser {
             os << L")";
         }
     };
-
-    // 前方宣言
-    inline String generate(const ast::SelectStatement& ast);
 
     // TableReference を文字列化する Visitor
     struct TableReferencePrinter : boost::static_visitor<void> {

@@ -36,6 +36,7 @@ namespace sqlparser::ast {
     struct IntLiteral;
     struct Between;
     struct In; // Added
+    struct Exists;
     struct WindowFunction;
 
     // 式を表すバリアント
@@ -60,7 +61,8 @@ namespace sqlparser::ast {
         boost::recursive_wrapper<Case>,
         boost::recursive_wrapper<Between>,
         boost::recursive_wrapper<In>,
-        boost::recursive_wrapper<WindowFunction>
+        boost::recursive_wrapper<WindowFunction>,
+        boost::recursive_wrapper<Exists>
     >;
 
     // 数値リテラル構造体
@@ -153,6 +155,11 @@ namespace sqlparser::ast {
 
     struct SelectStatement;
 
+    // EXISTS式構造体
+    struct Exists {
+        boost::recursive_wrapper<SelectStatement> subquery;
+    };
+
     // テーブル (名前 + エイリアス)
     struct Table {
         String name;
@@ -234,6 +241,7 @@ BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::WhenClause, when, then)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Case, arg, when_clauses, else_result)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Between, expr, lower, upper, not_between)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::In, expr, values, not_in)
+BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Exists, subquery)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::ResultColumn, expr, alias)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::OrderByElement, column, direction)
 BOOST_FUSION_ADAPT_STRUCT(sqlparser::ast::Join, type, table, on)

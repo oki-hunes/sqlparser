@@ -57,6 +57,7 @@ namespace sqlparser::parser {
                 (L"LIKE", x3::unused)
                 (L"OVER", x3::unused)
                 (L"PARTITION", x3::unused)
+                (L"EXISTS", x3::unused)
                 ;
         }
     } const keywords;
@@ -358,6 +359,62 @@ namespace sqlparser::parser {
     }) ];
     BOOST_SPIRIT_DEFINE(int_literal);
 
+    // バランス括弧パーサー (EXISTS サブクエリ用)
+    struct balanced_parens_type : x3::parser<balanced_parens_type> {
+        using attribute_type = std::wstring;
+        template <typename Iterator, typename Context, typename RuleContext, typename Attribute>
+        bool parse(Iterator& first, Iterator const& last, Context const& ctx,
+                   RuleContext const&, Attribute& attr) const {
+            if (first == last || *first != L'(') return false;
+            Iterator start = first;
+            int depth = 0;
+            bool in_string = false;
+            Iterator it = first;
+            while (it != last) {
+                wchar_t c = *it;
+                if (in_string) {
+                    if (c == L'\'') in_string = false;
+                } else {
+                    if (c == L'\'') in_string = true;
+                    else if (c == L'(') depth++;
+                    else if (c == L')') {
+                        depth--;
+                        if (depth == 0) {
+                            ++it;
+                            attr = std::wstring(start, it);
+                            first = it;
+                            return true;
+                        }
+                    }
+                }
+                ++it;
+            }
+            return false;
+        }
+    } const balanced_parens;
+
+    // parse() の前方宣言 (EXISTS 式のサブクエリ解析用)
+    inline bool parse(std::wstring const& sql, ast::SelectStatement& ast);
+
+    // EXISTS式のルール
+    x3::rule<class exists_class, ast::Exists> const exists_expr = "exists_expr";
+    auto const exists_kw = x3::no_case[x3::lit(L"EXISTS")];
+    auto make_exists_expr = [](auto& ctx) {
+        auto& raw_parens = x3::_attr(ctx); // "(SELECT ...)" を含む文字列
+        std::wstring inner(raw_parens.begin() + 1, raw_parens.end() - 1);
+        ast::SelectStatement sub;
+        if (!parse(inner, sub)) {
+            x3::_pass(ctx) = false;
+            return;
+        }
+        ast::Exists exists_node;
+        exists_node.subquery = sub;
+        x3::_val(ctx) = exists_node;
+    };
+    auto const exists_expr_def =
+        (x3::omit[exists_kw] >> x3::omit[*space] >> balanced_parens) [make_exists_expr];
+    BOOST_SPIRIT_DEFINE(exists_expr);
+
     // primary: 数値 | CAST式 | 関数呼び出し | 識別子 | * | (式)
     // 注意: function_call は identifier で始まるため、identifier より先に記述する必要がある
     // "*" を追加して SELECT * に対応
@@ -365,6 +422,7 @@ namespace sqlparser::parser {
         int_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | cast_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | window_function_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | exists_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | function_call [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | case_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | identifier [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
