@@ -34,6 +34,7 @@ namespace sqlparser::ast {
     struct Case;
     struct StringLiteral;
     struct IntLiteral;
+    struct FloatLiteral;
     struct Between;
     struct In; // Added
     struct Exists;
@@ -52,6 +53,7 @@ namespace sqlparser::ast {
     // In: IN式
     using Expression = boost::variant<
         IntLiteral,
+        FloatLiteral,
         String, 
         boost::recursive_wrapper<StringLiteral>,
         boost::recursive_wrapper<BinaryOp>,
@@ -69,6 +71,12 @@ namespace sqlparser::ast {
     struct IntLiteral {
         int value;
         IntLiteral(int v = 0) : value(v) {}
+    };
+
+    // 浮動小数点リテラル構造体 (例: 0.6, 1.0)
+    struct FloatLiteral {
+        double value;
+        FloatLiteral(double v = 0) : value(v) {}
     };
 
     // 文字列リテラル構造体

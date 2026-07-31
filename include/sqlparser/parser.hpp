@@ -352,12 +352,22 @@ namespace sqlparser::parser {
     auto const string_literal_def = x3::lexeme[L"'" >> *(x3::standard_wide::char_ - L"'") >> L"'"];
     BOOST_SPIRIT_DEFINE(string_literal);
 
-    // 数値リテラル
+    // 数値リテラル (整数)
     x3::rule<class int_literal_class, ast::IntLiteral> const int_literal = "int_literal";
     auto const int_literal_def = x3::int_ [ ([](auto& ctx){ 
         x3::_val(ctx) = ast::IntLiteral(x3::_attr(ctx)); 
     }) ];
     BOOST_SPIRIT_DEFINE(int_literal);
+
+    // 数値リテラル (小数点を含むもの: 0.6, 1.0 など)
+    // strict_real_policies により、小数点を含まない数値 (整数) にはマッチしない
+    // (整数は int_literal 側でマッチさせるため)
+    x3::rule<class float_literal_class, ast::FloatLiteral> const float_literal = "float_literal";
+    auto const float_literal_def = x3::real_parser<double, x3::strict_real_policies<double>>()
+        [ ([](auto& ctx){
+            x3::_val(ctx) = ast::FloatLiteral(x3::_attr(ctx));
+        }) ];
+    BOOST_SPIRIT_DEFINE(float_literal);
 
     // バランス括弧パーサー (EXISTS サブクエリ用)
     struct balanced_parens_type : x3::parser<balanced_parens_type> {
@@ -419,7 +429,8 @@ namespace sqlparser::parser {
     // 注意: function_call は identifier で始まるため、identifier より先に記述する必要がある
     // "*" を追加して SELECT * に対応
     auto const primary_def = 
-        int_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        float_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
+        | int_literal [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | cast_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | window_function_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
         | exists_expr [ ([](auto& ctx){ x3::_val(ctx) = ast::Expression(x3::_attr(ctx)); }) ]
@@ -949,7 +960,20 @@ namespace sqlparser::parser {
 
     // SQL全体をパースする関数
     // 再帰的に呼び出されるため、UNIONの処理もここで行う
-    inline bool parse(std::wstring const& sql, ast::SelectStatement& ast) {
+    inline bool parse(std::wstring const& sql_in, ast::SelectStatement& ast) {
+        // 前後の空白を除去する。
+        // "EXISTS ( SELECT ... )" のように括弧の直後に空白が入るケースでは、
+        // サブクエリ文字列の先頭に空白が残ったまま渡されるため、
+        // それを考慮せずに "SELECT" が先頭(位置0)にあるかを判定すると
+        // 誤って parse 失敗になり、EXISTS 式全体が消失してしまう。
+        std::wstring sql;
+        {
+            size_t ws_begin = sql_in.find_first_not_of(L" \t\r\n");
+            if (ws_begin == std::wstring::npos) return false;
+            size_t ws_end = sql_in.find_last_not_of(L" \t\r\n");
+            sql = sql_in.substr(ws_begin, ws_end - ws_begin + 1);
+        }
+
         // UNION の分割
         // 括弧内の UNION は無視する必要があるため、単純な find_keyword では不十分かもしれないが、
         // ここではトップレベルの UNION を探す簡易的な実装とする。

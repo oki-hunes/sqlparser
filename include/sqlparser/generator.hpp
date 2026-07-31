@@ -1,6 +1,7 @@
 #pragma once
 #include <sqlparser/ast.hpp>
 #include <sstream>
+#include <iomanip>
 #include <boost/variant/apply_visitor.hpp>
 
 namespace sqlparser {
@@ -16,6 +17,11 @@ namespace sqlparser {
         void operator()(const ast::IntLiteral& i) const {
             // os << i.value;
             os << i.value; // Reverted debug print idea to keep output clean, but I know it is IntLiteral
+        }
+
+        void operator()(const ast::FloatLiteral& f) const {
+            // 桁落ちを避けつつ、末尾の余分な0は付けない (defaultfloat の丸め表示)
+            os << std::setprecision(15) << f.value;
         }
 
         void operator()(const String& s) const {
